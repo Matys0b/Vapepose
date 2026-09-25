@@ -157,6 +157,7 @@ class UserCreate(BaseModel):
 class Category(BaseModel):
     id: str = Field(default_factory=new_id)
     name: str
+    parent_id: Optional[str] = None
     color: Optional[str] = None
     icon: Optional[str] = None
     sort_order: int = 0
@@ -164,9 +165,31 @@ class Category(BaseModel):
 
 class CategoryIn(BaseModel):
     name: str
+    parent_id: Optional[str] = None
     color: Optional[str] = None
     icon: Optional[str] = None
     sort_order: int = 0
+
+
+class ProductImportRow(BaseModel):
+    name: str
+    brand: Optional[str] = None
+    category_path: Optional[str] = None  # "E-liquides/50ml"
+    sku: Optional[str] = None
+    ean: Optional[str] = None
+    price: float = 0.0
+    cost_price: Optional[float] = 0.0
+    vat_rate: float = 20.0
+    stock: int = 0
+    stock_alert: int = 5
+    variant: Optional[str] = None
+    image_url: Optional[str] = None
+    is_favorite: bool = False
+
+
+class ProductImportIn(BaseModel):
+    rows: List[ProductImportRow]
+    upsert_by: Literal["ean", "sku", "name"] = "ean"
 
 
 class Product(BaseModel):
@@ -385,13 +408,38 @@ async def seed():
     # Categories
     cat_map = {}
     for name, color, icon, order in VAPE_CATEGORIES:
-        existing = await db.categories.find_one({"name": name})
+        existing = await db.categories.find_one({"name": name, "parent_id": None})
         if existing:
             cat_map[name] = existing["id"]
         else:
             cid = new_id()
-            await db.categories.insert_one({"id": cid, "name": name, "color": color, "icon": icon, "sort_order": order})
+            await db.categories.insert_one({"id": cid, "name": name, "parent_id": None, "color": color, "icon": icon, "sort_order": order})
             cat_map[name] = cid
+
+    # Sub-categories (seed a few realistic ones so the tree isn't flat)
+    SUB_CATEGORIES = [
+        ("E-liquides",   [("10ml", 1), ("50ml", 2), ("100ml", 3), ("Sels de nicotine", 4)]),
+        ("Kits",         [("Débutant", 1), ("Confirmé", 2), ("Expert", 3)]),
+        ("Pods",         [("Ouverts", 1), ("Fermés", 2)]),
+        ("Résistances",  [("Voopoo", 1), ("Vaporesso", 2), ("Uwell", 3), ("Smok", 4)]),
+        ("Accessoires",  [("Coton", 1), ("Chargeurs", 2), ("Housses", 3), ("Câbles", 4)]),
+        ("DIY / Bases",  [("Base 50/50", 1), ("Base 70/30", 2), ("Arômes concentrés", 3)]),
+    ]
+    for parent_name, subs in SUB_CATEGORIES:
+        parent_id = cat_map.get(parent_name)
+        if not parent_id:
+            continue
+        for sub_name, order in subs:
+            key = f"{parent_name}/{sub_name}"
+            if key in cat_map:
+                continue
+            existing = await db.categories.find_one({"name": sub_name, "parent_id": parent_id})
+            if existing:
+                cat_map[key] = existing["id"]
+            else:
+                cid = new_id()
+                await db.categories.insert_one({"id": cid, "name": sub_name, "parent_id": parent_id, "sort_order": order})
+                cat_map[key] = cid
 
     # Products — duplicated per store so each shop has its own stock
     if await db.products.count_documents({}) == 0:
@@ -548,16 +596,97 @@ async def list_stores(user: dict = Depends(current_user)):
 
 # --- Categories ----------------------------------------------------------
 @api.get("/categories")
-async def list_categories(user: dict = Depends(current_user)):
-    return await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+async def list_categories(
+    parent_id: Optional[str] = None,
+    user: dict = Depends(current_user),
+):
+    q: dict = {}
+    if parent_id == "root":
+        q["parent_id"] = None
+    elif parent_id:
+        q["parent_id"] = parent_id
+    return await db.categories.find(q, {"_id": 0}).sort("sort_order", 1).to_list(500)
+
+
+@api.get("/categories/tree")
+async def category_tree(user: dict = Depends(current_user)):
+    cats = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(500)
+    by_parent: dict = {}
+    for c in cats:
+        by_parent.setdefault(c.get("parent_id"), []).append(c)
+    match: dict = {"active": True}
+    if user.get("store_id"):
+        match["store_id"] = user["store_id"]
+    counts = {}
+    async for row in db.products.aggregate([
+        {"$match": match},
+        {"$group": {"_id": "$category_id", "n": {"$sum": 1}}},
+    ]):
+        counts[row["_id"]] = row["n"]
+    def build(pid):
+        return [
+            {**c, "children": build(c["id"]), "product_count": counts.get(c["id"], 0)}
+            for c in sorted(by_parent.get(pid, []), key=lambda x: x.get("sort_order", 0))
+        ]
+    return build(None)
+
+
+@api.get("/categories/{cid}")
+async def get_category(cid: str, user: dict = Depends(current_user)):
+    c = await db.categories.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Catégorie introuvable")
+    trail = [c]
+    cur = c
+    while cur.get("parent_id"):
+        parent = await db.categories.find_one({"id": cur["parent_id"]}, {"_id": 0})
+        if not parent:
+            break
+        trail.insert(0, parent)
+        cur = parent
+    children = await db.categories.find({"parent_id": cid}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+    pq: dict = {"active": True, "category_id": cid}
+    if user.get("store_id"):
+        pq["store_id"] = user["store_id"]
+    product_count = await db.products.count_documents(pq)
+    return {"category": c, "breadcrumb": trail, "children": children, "product_count": product_count}
 
 
 @api.post("/categories")
 async def create_category(body: CategoryIn, actor: dict = Depends(require_role("admin", "manager"))):
+    if body.parent_id:
+        parent = await db.categories.find_one({"id": body.parent_id})
+        if not parent:
+            raise HTTPException(400, "Catégorie parente introuvable")
     doc = Category(**body.model_dump()).model_dump()
     await db.categories.insert_one(doc)
+    await audit(actor, "category.create", "categories", doc["id"], {"name": doc["name"], "parent": body.parent_id})
     doc.pop("_id", None)
     return doc
+
+
+@api.put("/categories/{cid}")
+async def update_category(cid: str, body: CategoryIn, actor: dict = Depends(require_role("admin", "manager"))):
+    if body.parent_id == cid:
+        raise HTTPException(400, "Une catégorie ne peut pas être son propre parent")
+    res = await db.categories.update_one({"id": cid}, {"$set": body.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Catégorie introuvable")
+    await audit(actor, "category.update", "categories", cid, body.model_dump())
+    return await db.categories.find_one({"id": cid}, {"_id": 0})
+
+
+@api.delete("/categories/{cid}")
+async def delete_category(cid: str, actor: dict = Depends(require_role("admin"))):
+    kids = await db.categories.count_documents({"parent_id": cid})
+    if kids:
+        raise HTTPException(400, f"Impossible : {kids} sous-catégorie(s)")
+    prods = await db.products.count_documents({"category_id": cid, "active": True})
+    if prods:
+        raise HTTPException(400, f"Impossible : {prods} produit(s) actifs")
+    await db.categories.delete_one({"id": cid})
+    await audit(actor, "category.delete", "categories", cid)
+    return {"ok": True}
 
 
 # --- Products ------------------------------------------------------------
@@ -602,7 +731,10 @@ async def lookup_product(code: str, user: dict = Depends(current_user)):
 
 @api.post("/products")
 async def create_product(body: ProductIn, actor: dict = Depends(require_role("admin", "manager"))):
+    if not actor.get("store_id"):
+        raise HTTPException(400, "Sélectionnez d'abord un magasin")
     doc = Product(**body.model_dump()).model_dump()
+    doc["store_id"] = actor["store_id"]
     doc["created_at"] = now_iso()
     await db.products.insert_one(doc)
     doc.pop("_id", None)
@@ -624,6 +756,69 @@ async def delete_product(pid: str, actor: dict = Depends(require_role("admin")))
     await db.products.update_one({"id": pid}, {"$set": {"active": False}})
     await audit(actor, "product.delete", "products", pid)
     return {"ok": True}
+
+
+@api.post("/products/import")
+async def import_products(body: ProductImportIn, actor: dict = Depends(require_role("admin", "manager"))):
+    if not actor.get("store_id"):
+        raise HTTPException(400, "Sélectionnez d'abord un magasin")
+    store_id = actor["store_id"]
+
+    async def resolve_category_path(path: Optional[str]) -> Optional[str]:
+        if not path:
+            return None
+        parts = [p.strip() for p in path.replace(">", "/").split("/") if p.strip()]
+        parent = None
+        for name in parts:
+            existing = await db.categories.find_one({"name": name, "parent_id": parent})
+            if existing:
+                parent = existing["id"]
+            else:
+                cid = new_id()
+                await db.categories.insert_one({
+                    "id": cid, "name": name, "parent_id": parent, "sort_order": 0
+                })
+                parent = cid
+        return parent
+
+    created = 0
+    updated = 0
+    errors: List[dict] = []
+    for i, row in enumerate(body.rows):
+        try:
+            cat_id = await resolve_category_path(row.category_path)
+            match: Optional[dict] = {"store_id": store_id, "active": True}
+            key = body.upsert_by
+            if key == "ean" and row.ean:
+                match["ean"] = row.ean
+            elif key == "sku" and row.sku:
+                match["sku"] = row.sku
+            elif key == "name":
+                match["name"] = row.name
+            else:
+                match = None
+            payload = {
+                "name": row.name, "brand": row.brand, "category_id": cat_id,
+                "sku": row.sku, "ean": row.ean,
+                "price": float(row.price), "cost_price": float(row.cost_price or 0),
+                "vat_rate": float(row.vat_rate), "stock": int(row.stock),
+                "stock_alert": int(row.stock_alert), "variant": row.variant,
+                "image_url": row.image_url, "is_favorite": bool(row.is_favorite),
+                "active": True, "store_id": store_id,
+            }
+            existing = await db.products.find_one(match) if match else None
+            if existing:
+                await db.products.update_one({"id": existing["id"]}, {"$set": payload})
+                updated += 1
+            else:
+                payload["id"] = new_id()
+                payload["created_at"] = now_iso()
+                await db.products.insert_one(payload)
+                created += 1
+        except Exception as e:
+            errors.append({"row": i, "name": row.name, "error": str(e)})
+    await audit(actor, "product.import", "products", None, {"created": created, "updated": updated, "errors": len(errors)})
+    return {"created": created, "updated": updated, "errors": errors, "total": len(body.rows)}
 
 
 # --- Customers -----------------------------------------------------------

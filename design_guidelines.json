@@ -1,0 +1,152 @@
+{
+  "project_name": "VapePOS",
+  "brand_identity": {
+    "name": "Cha Va'Pote - VapePOS",
+    "tagline": "Systeme POS & Caisse Tactile pour Boutiques de Vape",
+    "theme": "Luminous Modern Dark Tablet POS",
+    "vibe": "Electrifying, high-speed, tactile, ultra-legible, modern retail command center"
+  },
+  "typography": {
+    "font_family_display": "'Unbounded', 'Outfit', sans-serif",
+    "font_family_body": "'Plus Jakarta Sans', 'Inter', sans-serif",
+    "font_family_mono": "'JetBrains Mono', monospace",
+    "heading_styles": {
+      "h1_pos": "text-2xl lg:text-3xl font-bold tracking-tight text-white",
+      "h2_modal": "text-3xl lg:text-4xl font-extrabold tracking-tight text-white",
+      "total_amount": "text-4xl lg:text-5xl font-black text-emerald-400 font-mono tracking-tight",
+      "product_title": "text-sm font-semibold text-slate-100 line-clamp-2 leading-tight"
+    },
+    "body_styles": {
+      "default": "text-sm font-medium text-slate-300",
+      "caption": "text-xs font-normal text-slate-400",
+      "badge": "text-xs font-bold uppercase tracking-wider"
+    }
+  },
+  "colors": {
+    "background_canvas": "#0F0B1E",
+    "surface_card": "#1A1333",
+    "surface_card_hover": "#251C45",
+    "surface_border": "#312658",
+    "primary_violet": "#8B5CF6",
+    "primary_pink": "#EC4899",
+    "accent_cyan": "#06B6D4",
+    "accent_emerald": "#10B981",
+    "accent_amber": "#F59E0B",
+    "accent_rose": "#F43F5E",
+    "gradient_primary": "bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-500",
+    "gradient_payment_button": "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black",
+    "text_colors": {
+      "primary": "#F8FAFC",
+      "secondary": "#94A3B8",
+      "muted": "#64748B",
+      "pink_highlight": "#F472B6",
+      "violet_highlight": "#C084FC"
+    }
+  },
+  "layout_architecture": {
+    "primary_surface": "Landscape 16:9 / 16:10 Tablet Touchscreen Layout (Full Viewport Height non-scrolling shell, 100vh)",
+    "pos_screen_zones": {
+      "top_navigation_bar": {
+        "height": "h-16",
+        "elements": [
+          "Cha Va'Pote Logo & Store Switcher Dropdown (Pouzauges - Caisse 1 vs Chantonnay - Caisse 2)",
+          "Cash Session Indicator Badge (Caisse Ouverte - Fond: 150.00 €)",
+          "Barcode Scanner Status Icon / Camera Toggle",
+          "Quick Cashier Switcher PIN Modal Trigger (Thomas V.)",
+          "Back-Office Navigation Drawer Button"
+        ]
+      },
+      "left_center_product_workspace": {
+        "width_percentage": "65% on landscape desktop/tablet",
+        "subzones": [
+          "Global Search Bar with integrated barcode scanner button",
+          "Category Scrollable Pills (Tous, E-liquides, Pods, Kits, Box, Résistances, Cartouches, Boosters, DIY, Bases, Accessoires, Batteries, Chargeurs)",
+          "Favorites Quick Access Row (Pack DIY 50/50, Booster 20mg, Coils PnP 0.3, Drag S2)",
+          "Product Grid with 4-5 columns of tactile cards (Photo, Title, Price, Nicotine level / Variant tag, Stock Badge, Quick + Add)"
+        ]
+      },
+      "right_sticky_cart": {
+        "width_percentage": "35% on landscape desktop/tablet",
+        "elements": [
+          "Customer Linking Bar (QR Code Scan or Customer Search - Lucie Bernard, 140 pts)",
+          "Scrollable Active Items Table (Item Title, Nicotine/Flavor details, Unit Price, Inline -/+ Qty control, Line Discount % button, Line Total)",
+          "Order Summary Box (Sous-Total TTC, Remise globale, TVA 20%, GRAND TOTAL TTC in huge emerald font)"
+        ]
+      },
+      "bottom_action_bar": {
+        "height": "h-20",
+        "buttons": [
+          "CLIENT / QR (Linking customer)",
+          "REMISE (Global order discount)",
+          "SUSPENDRE (Hold order)",
+          "PANIERS EN ATTENTE (3 held carts badge)",
+          "ANNULER (Clear order)",
+          "PAIEMENT (Massive highlight action trigger with live total)"
+        ]
+      }
+    }
+  },
+  "key_features_and_modals": {
+    "payment_modal": {
+      "type": "Full-screen high-contrast touch modal",
+      "components": [
+        "Enormous 'TOTAL À PAYER' display in Emerald Bold font",
+        "Payment Mode Selection Cards (Carte Bancaire CB, Espèces, Chèque / Autre, Paiement Mixte)",
+        "On-screen Large Touch Numpad for Cash Input",
+        "Quick Cash Preset Buttons (10€, 20€, 50€, Appoint Exact)",
+        "Instant Change Calculator Banner ('À RENDRE : 1.50 €')",
+        "VALIDER PAIEMENT Action Button"
+      ]
+    },
+    "sale_completed_modal": {
+      "components": [
+        "Big Success check animation (VENTE TERMINÉE)",
+        "Change recap banner",
+        "Receipt options: Imprimer Ticket, Ticket par Email, Ticket Numérique QR, Sans Ticket",
+        "NOUVELLE VENTE primary button + 5s Auto Return timer"
+      ]
+    },
+    "suspended_carts_drawer": {
+      "function": "List held tickets with timestamp, customer name, items count, amount and 'Reprendre' button"
+    },
+    "cash_session_modal": {
+      "function": "Ouverture / Fermeture de caisse with bill & coin counter (100€, 50€, 20€, 10€, 5€, 2€, 1€, 0.50€), expected balance vs actual balance diff calculation, Z-Report generator"
+    },
+    "backoffice_modules": [
+      "Ventes (Transaction Logs & Receipts)",
+      "Produits (Catalog Management & Flavors/Nicotine matrix)",
+      "Stock (Inventory levels, Low stock alerts, Multi-store transfer Pouzauges <-> Chantonnay)",
+      "Fournisseurs (Supplier purchase orders)",
+      "Clients (Customer database & history)",
+      "Fidélité (Points & reward system: 1€ = 1 pt, 100 pts = 5€ discount)",
+      "Comptabilité (Daily cash reports & VAT summaries)",
+      "Statistiques (Sales graph, top e-liquids, revenue per cashier)",
+      "Utilisateurs (Cashier PINs & roles: Admin, Responsable, Vendeur)",
+      "Paramètres (Store branding, tax rates, receipt printer config)"
+    ]
+  },
+  "image_urls": {
+    "vape_pod_device": "https://images.unsplash.com/photo-1715613813943-af12c13b07d6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHx2YXBlJTIwcG9kJTIwZS1saXF1aWQlMjB2YXBlJTIwc3RvcmUlMjBwcm9kdWN0fGVufDB8fHx8MTc5MDM1MTQ4OHww&ixlib=rb-4.1.0&q=85",
+    "vape_device_lineup": "https://images.unsplash.com/photo-1715613814819-dac39808e80f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHw0fHx2YXBlJTIwcG9kJTIwZS1saXF1aWQlMjB2YXBlJTIwc3RvcmUlMjBwcm9kdWN0fGVufDB8fHx8MTc5MDM1MTQ4OHww&ixlib=rb-4.1.0&q=85",
+    "vape_liquids_selection": "https://images.unsplash.com/photo-1715613814847-a124f06fcf3a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHszfHx2YXBlJTIwcG9kJTIwZS1saXF1aWQlMjB2YXBlJTIwc3RvcmUlMjBwcm9kdWN0fGVufDB8fHx8MTc5MDM1MTQ4OHww&ixlib=rb-4.1.0&q=85",
+    "vape_mod_duo": "https://images.unsplash.com/photo-1715613812185-4496341f236c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwyfHx2YXBlJTIwcG9kJTIwZS1saXF1aWQlMjB2YXBlJTIwc3RvcmUlMjBwcm9kdWN0fGVufDB8fHx8MTc5MDM1MTQ4OHww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Priority surface is the POS Cash Register in landscape tablet orientation. Ensure layout is 100vh locked without window scrollbars; inner scroll regions for products and cart.",
+    "Enforce high-contrast dark theme (#0F0B1E background, #1A1333 cards, #EC4899 pink accents, #8B5CF6 violet glows).",
+    "All touch targets (buttons, product cards, category tabs, numpad keys) must have minimum height of 48px to 64px for fast cashier tapping without miss-clicks.",
+    "Implement real-time cart math (subtotal, percentage/amount discounts, 20% French VAT, item addition/subtraction, line deletion).",
+    "Payment drawer/modal MUST feature a working virtual numpad for cash, quick exact bill buttons (+10€, +20€, +50€, Appoint exact), and change calculation ('À rendre').",
+    "Provide store switcher in top header (Pouzauges vs Chantonnay) and cashier switch PIN overlay.",
+    "Include sample seed data for French vape items (Red Astaire 50ml, Sub Zero 10ml, Kit Drag X, Coils GTX 0.2, Booster Nicotine 20mg, Base DIY 50/50 1L).",
+    "Secondary back-office pages (Ventes, Produits, Stock, Clients, Statistiques, etc.) must be accessible via top/side drawer menu without disrupting active sales.",
+    "Every key interactive element MUST carry a descriptive data-testid attribute (e.g., data-testid='pos-product-card', data-testid='pos-cart-payment-btn', data-testid='numpad-btn-20')."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do NOT make generic white centered layouts or dull Bootstrap columns.",
+    "Do NOT use transparent backgrounds for modals, headers or floating popovers.",
+    "Always specify precise hover/focus states with contrasting text colors.",
+    "Ensure all buttons and inputs have clear data-testid attributes.",
+    "Use sonner for instant cashier notification toasts (e.g., 'Produit ajouté au panier', 'Remise appliquée', 'Vente enregistrée')."
+  ]
+}

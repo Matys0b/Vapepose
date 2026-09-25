@@ -1,0 +1,117 @@
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --background: 258 55% 8%;
+    --foreground: 210 40% 98%;
+    --card: 258 45% 14%;
+    --card-foreground: 210 40% 98%;
+    --popover: 258 45% 14%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 259 89% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 258 35% 20%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 258 30% 22%;
+    --muted-foreground: 220 12% 65%;
+    --accent: 322 85% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 350 89% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 258 30% 22%;
+    --input: 258 30% 22%;
+    --ring: 259 89% 65%;
+    --radius: 0.75rem;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+    background: #0f0b1e;
+    color: #f8fafc;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+}
+
+body {
+    background:
+        radial-gradient(1200px 800px at 10% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
+        radial-gradient(900px 600px at 95% 110%, rgba(236, 72, 153, 0.14), transparent 60%),
+        #0f0b1e;
+    min-height: 100vh;
+}
+
+.font-display {
+    font-family: 'Unbounded', system-ui, sans-serif;
+    letter-spacing: -0.01em;
+}
+
+.font-mono-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.pos-shell {
+    height: 100vh;
+    overflow: hidden;
+}
+
+.scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+    background: rgba(139, 92, 246, 0.35);
+    border-radius: 8px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+@layer base {
+    * {
+        border-color: hsl(var(--border));
+    }
+}
+
+.grain::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.06;
+    background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    mix-blend-mode: overlay;
+}
+
+.tile-glow:hover {
+    box-shadow: 0 0 0 1px rgba(236, 72, 153, 0.35), 0 12px 30px -12px rgba(139, 92, 246, 0.6);
+    transform: translateY(-1px);
+}
+.tile-glow {
+    transition: transform 120ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.numpad-key {
+    height: 68px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 1.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(139, 92, 246, 0.25);
+    color: #f8fafc;
+    border-radius: 14px;
+    transition: transform 80ms ease, background 120ms ease;
+}
+.numpad-key:hover {
+    background: rgba(139, 92, 246, 0.15);
+}
+.numpad-key:active {
+    transform: scale(0.97);
+}

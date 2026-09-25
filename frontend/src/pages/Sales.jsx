@@ -10,9 +10,12 @@ const fmt = (n) => `${(Math.round(n * 100) / 100).toFixed(2).replace(".", ",")} 
 export default function SalesPage() {
   const [sales, setSales] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [stores, setStores] = useState([]);
+  const [storeFilter, setStoreFilter] = useState("all");
 
-  const load = () => api.get("/sales", { params: { limit: 100 } }).then((r) => setSales(r.data));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { api.get("/stores").then((r) => setStores(r.data)).catch(() => {}); }, []);
+  const load = () => api.get("/sales", { params: { limit: 100, store_id: storeFilter } }).then((r) => setSales(r.data));
+  useEffect(() => { load(); }, [storeFilter]);
 
   const refund = async (sid) => {
     if (!window.confirm("Rembourser cette vente ? Le stock sera réintégré.")) return;
@@ -22,7 +25,13 @@ export default function SalesPage() {
 
   return (
     <div className="space-y-4" data-testid="sales-page">
-      <h1 className="font-display text-3xl font-black">Ventes</h1>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="font-display text-3xl font-black">Ventes</h1>
+        <select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)} className="h-10 rounded-lg bg-slate-900 border border-violet-500/20 px-3 text-slate-100" data-testid="sales-store-filter">
+          <option value="all">Tous les magasins</option>
+          {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="bg-slate-900/70 border-violet-500/20 p-0 lg:col-span-2 overflow-hidden">

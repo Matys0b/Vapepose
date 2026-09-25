@@ -1,0 +1,37 @@
+{
+  "summary": "VapePOS Phase 3 pivot backend fully validated. Created new /app/backend/tests/test_multi_store_v3.py covering 22 tests across public endpoints (auth/accounts, stores/public), PIN login (Mathis/Emma/Jessica), switch-store, per-store product isolation, sales stock decrement isolation, stock adjust/bulk isolation, accounting summary/timeseries/CSV export with store_id filter, and dashboard. All 22 tests passed. Legacy admin/manager/vendeur logins correctly return 401 (bootstrap_reset_v3 wiped them).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/pin-login", "issue": "Spec says 'after PIN login user has store_id=null' but the endpoint returns whatever store_id is persisted from a prior /auth/switch-store. On a truly fresh bootstrap it is null (as seeded), but after any switch-store the DB value persists across pin-logins. If frontend relies on 'must pick a store on every login', backend should clear user.store_id at pin-login time (or ignore it and require the client to switch on each session)."},
+      {"endpoint": "GET /api/products/lookup", "issue": "When user.store_id is None (fresh account, before switch-store), lookup queries all stores and may return a product from any store, which could confuse the tablet UX. Consider forcing 404 if store_id is not selected."},
+      {"endpoint": "GET /api/sales", "issue": "list_sales does NOT filter by store_id — a Pouzauges vendor can list Chantonnay sales. This breaks the per-store isolation invariant for read-side sales (only accounting/summary honours store_id). Recommend applying the same store scoping as products."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_multi_store_v3.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: On POST /api/auth/pin-login, set user.store_id = None (or omit persisting store in switch-store) so store selection is required each session — spec implies this.",
+    "OPTIONAL: Scope GET /api/sales by user.store_id (or accept store_id query param) to mirror product isolation.",
+    "OPTIONAL: /api/products/lookup should 404 when caller has no store_id set to avoid cross-store leakage before store is picked."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1261 lines — recommend splitting into modules (auth, products, sales, accounting, stock).",
+    "pin_login iterates over ALL users and bcrypt-verifies each — O(N) per login. Acceptable at 3 users but should be revisited if user count grows.",
+    "list_sales lacks store_id filter — inconsistent with products/accounting isolation.",
+    "switch_store persists store_id in DB globally on the user, so multi-device usage will race (Emma logs in on tablet A + Pouzauges, then on tablet B + Chantonnay overwrites A's store). Consider carrying store_id in the JWT/session instead of user doc.",
+    "Bootstrap reset uses a single flag doc; no idempotency guard on seed(); safe today but fragile if seed() is re-run manually.",
+    "SEED_PRODUCTS_TEMPLATE assumption of 17 rows is only enforced via tests — add a length check in code for defensive integrity."
+  ],
+  "updated_files": ["/app/backend/tests/test_multi_store_v3.py"],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Mathis PIN 1111 / Emma PIN 2222 / Jessica PIN 3333 (all password 'vapepos' if email login used). Stores: POU (Pouzauges), CHA (Chantonnay).",
+  "seed_data_creation": "Tests generate a few sales during accounting-filter test. No cleanup performed — sales are recorded in current-day counters. Safe to re-run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Legacy backend_test.py and test_accounting_phase2.py reference deleted admin/manager/vendeur users and WILL fail — that is expected. Use test_multi_store_v3.py as the canonical Phase 3 regression. bootstrap_reset_v3 flag is already set in app_settings so subsequent restarts will NOT wipe data. Sales collection accumulates across test runs; no impact on assertions but total counts grow.",
+  "rca of the issue": "N/A — no critical bugs found. All 16 features from the review request behave as specified."
+}

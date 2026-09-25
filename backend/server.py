@@ -479,11 +479,13 @@ async def login(body: LoginIn, response: Response):
 async def pin_login(body: PinLoginIn, response: Response):
     async for u in db.users.find({"pin_hash": {"$ne": None}}):
         if u.get("pin_hash") and verify_password(body.pin, u["pin_hash"]):
+            # Force store re-selection each session
+            await db.users.update_one({"id": u["id"]}, {"$set": {"store_id": None}})
             token = make_token(u["id"], u["role"])
             set_auth_cookie(response, token)
             return {
                 "id": u["id"], "email": u["email"], "name": u["name"],
-                "role": u["role"], "store_id": u.get("store_id"), "token": token,
+                "role": u["role"], "store_id": None, "color": u.get("color"), "token": token,
             }
     raise HTTPException(401, "PIN incorrect")
 
@@ -587,10 +589,12 @@ async def list_products(
 
 @api.get("/products/lookup")
 async def lookup_product(code: str, user: dict = Depends(current_user)):
-    q = {"$or": [{"ean": code}, {"sku": code}]}
-    if user.get("store_id"):
-        q["store_id"] = user["store_id"]
-    p = await db.products.find_one(q, {"_id": 0})
+    if not user.get("store_id"):
+        raise HTTPException(400, "Sélectionnez d'abord un magasin")
+    p = await db.products.find_one(
+        {"$or": [{"ean": code}, {"sku": code}], "store_id": user["store_id"]},
+        {"_id": 0},
+    )
     if not p:
         raise HTTPException(404, "Produit introuvable dans ce magasin")
     return p
@@ -833,11 +837,18 @@ async def create_sale(body: SaleIn, user: dict = Depends(current_user)):
 async def list_sales(
     limit: int = 50,
     customer_id: Optional[str] = None,
+    store_id: Optional[str] = None,
     user: dict = Depends(current_user),
 ):
     q: dict = {}
     if customer_id:
         q["customer_id"] = customer_id
+    if store_id == "all":
+        pass
+    elif store_id:
+        q["store_id"] = store_id
+    elif user.get("store_id"):
+        q["store_id"] = user["store_id"]
     return await db.sales.find(q, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
 
 

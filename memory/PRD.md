@@ -10,10 +10,21 @@ VapePOS — Caisse professionnelle pour boutiques de vape. Priorité absolue : l
 - Ticket : HTML + impression navigateur + placeholder email (architecture prête ESC/POS)
 - Seed : catalogue vape réaliste, 2 magasins, admin/manager/2 vendeurs, quelques clients
 
+## Comptes actifs (Phase 3 pivot)
+Trois profils administrateurs — sélection par cartes au login puis PIN 4 chiffres, puis choix de magasin obligatoire à chaque session.
+- **Mathis** – PIN 1111 (violet)
+- **Emma** – PIN 2222 (rose)
+- **Jessica** – PIN 3333 (cyan)
+
+## Isolation multi-magasin
+- **Pouzauges (POU)** et **Chantonnay (CHA)** : catalogues **strictement séparés** (stocks indépendants, ventes indépendantes, CA indépendants). Produit dupliqué par magasin (17 × 2 = 34 fiches).
+- Endpoints scopés par `user.store_id` : `/products`, `/products/lookup`, `/sales`, `/dashboard/stats`.
+- Comptabilité (`/accounting/summary`, `/accounting/timeseries`, `/accounting/export.csv`) accepte `?store_id=all|<id>` — la vue est **par défaut sur tous les magasins** avec filtre.
+- Sale creation décrémente uniquement le stock du magasin en cours ; stock/bulk/adjust idem.
+- `POST /auth/pin-login` force `store_id=null` pour obliger la sélection du magasin à chaque session.
+
 ## Personas
-- **Admin (owner)** – configure la SaaS, gère utilisateurs & catalogues
-- **Responsable** – supervise magasin, remboursements, réceptions stock
-- **Vendeur** – encaisse client, PIN quick-switch tablette
+- **Admin (owner)** – 3 comptes Mathis/Emma/Jessica
 
 ## Architecture
 - Backend : FastAPI + Motor (MongoDB `vapepos_database`) — tout sous `/api`

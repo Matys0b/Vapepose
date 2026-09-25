@@ -4,10 +4,30 @@ export function registerPWA() {
     window.addEventListener("load", () => {
       navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
+        .then((reg) => {
+          // Force an update check on every load
+          reg.update().catch(() => {});
+          // When a new SW takes control, reload once to pick up new assets
+          let reloaded = false;
+          navigator.serviceWorker.addEventListener("controllerchange", () => {
+            if (reloaded) return;
+            reloaded = true;
+            window.location.reload();
+          });
+          // If a new SW is installed while page is open, tell it to skip waiting
+          reg.addEventListener("updatefound", () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener("statechange", () => {
+              if (nw.state === "installed" && navigator.serviceWorker.controller) {
+                nw.postMessage("SKIP_WAITING");
+              }
+            });
+          });
+        })
         .catch(() => {});
     });
   }
-  // Capture beforeinstallprompt so InstallBanner can trigger it
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     window.__vapepos_installEvent = e;

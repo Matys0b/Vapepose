@@ -113,6 +113,49 @@ def require_role(*roles: str):
     return _dep
 
 
+CUSTOMER_TTL_MIN = 60 * 24 * 30  # 30 days
+
+
+def make_customer_token(customer_id: str) -> str:
+    payload = {
+        "sub": customer_id,
+        "type": "customer",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=CUSTOMER_TTL_MIN),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+
+async def current_customer(request: Request) -> dict:
+    token = request.cookies.get("customer_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid token")
+    if payload.get("type") != "customer":
+        raise HTTPException(401, "Not a customer token")
+    c = await db.customers.find_one({"id": payload["sub"]}, {"password_hash": 0})
+    if not c:
+        raise HTTPException(401, "Customer not found")
+    c.pop("_id", None)
+    return c
+
+
+def set_customer_cookie(response: Response, token: str):
+    response.set_cookie(
+        "customer_token", token,
+        httponly=True, secure=True, samesite="none",
+        max_age=CUSTOMER_TTL_MIN * 60, path="/",
+    )
+
+
 async def audit(actor: dict, action: str, entity: str, entity_id: Optional[str] = None, meta: Optional[dict] = None):
     await db.audit_logs.insert_one({
         "id": new_id(),
@@ -944,6 +987,91 @@ async def export_products_csv(
 
 
 # --- Customers -----------------------------------------------------------
+class CustomerRegisterIn(BaseModel):
+    first_name: str
+    last_name: Optional[str] = ""
+    email: str
+    password: str
+    phone: Optional[str] = None
+
+
+class CustomerLoginIn(BaseModel):
+    email: str
+    password: str
+
+
+@api.post("/customer/register")
+async def customer_register(body: CustomerRegisterIn, response: Response):
+    email = body.email.lower().strip()
+    if len(body.password) < 6:
+        raise HTTPException(400, "Mot de passe trop court (6 caractères minimum)")
+    existing = await db.customers.find_one({"email": email})
+    if existing and existing.get("password_hash"):
+        raise HTTPException(400, "Un compte existe déjà avec cet email")
+    if existing:
+        # Upgrade an existing in-store customer to a portal account
+        await db.customers.update_one({"id": existing["id"]}, {"$set": {
+            "password_hash": hash_password(body.password),
+            "first_name": body.first_name or existing.get("first_name"),
+            "last_name": body.last_name or existing.get("last_name", ""),
+            "phone": body.phone or existing.get("phone"),
+        }})
+        c = await db.customers.find_one({"id": existing["id"]}, {"_id": 0, "password_hash": 0})
+    else:
+        doc = {
+            "id": new_id(),
+            "first_name": body.first_name,
+            "last_name": body.last_name or "",
+            "email": email,
+            "phone": body.phone,
+            "password_hash": hash_password(body.password),
+            "qr_token": secrets.token_urlsafe(24),
+            "loyalty_points": 0,
+            "created_at": now_iso(),
+        }
+        await db.customers.insert_one(doc)
+        c = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+    token = make_customer_token(c["id"])
+    set_customer_cookie(response, token)
+    return {**c, "token": token}
+
+
+@api.post("/customer/login")
+async def customer_login(body: CustomerLoginIn, response: Response):
+    c = await db.customers.find_one({"email": body.email.lower().strip()})
+    if not c or not c.get("password_hash") or not verify_password(body.password, c["password_hash"]):
+        raise HTTPException(401, "Email ou mot de passe invalide")
+    token = make_customer_token(c["id"])
+    set_customer_cookie(response, token)
+    c.pop("password_hash", None); c.pop("_id", None)
+    return {**c, "token": token}
+
+
+@api.post("/customer/logout")
+async def customer_logout(response: Response):
+    response.delete_cookie("customer_token", path="/")
+    return {"ok": True}
+
+
+@api.get("/customer/me")
+async def customer_me_endpoint(c: dict = Depends(current_customer)):
+    sales = await db.sales.find({"customer_id": c["id"], "status": "completed"}, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20)
+    txns = await db.loyalty_transactions.find({"customer_id": c["id"]}, {"_id": 0}).sort("at", -1).limit(30).to_list(30)
+    settings = await db.app_settings.find_one({"key": "loyalty"}, {"_id": 0}) or {"euro_per_point": 1.0, "point_value_euro": 0.05}
+    stores = {s["id"]: s["name"] for s in await db.stores.find({}, {"_id": 0}).to_list(50)}
+    for s in sales:
+        s["store_name"] = stores.get(s.get("store_id"), "")
+    total_spent = round(sum(s["total"] for s in sales), 2)
+    return {**c, "recent_sales": sales, "loyalty_txns": txns, "loyalty_settings": settings, "total_spent": total_spent}
+
+
+@api.post("/customer/qr-refresh")
+async def customer_qr_refresh(c: dict = Depends(current_customer)):
+    new_token = secrets.token_urlsafe(24)
+    await db.customers.update_one({"id": c["id"]}, {"$set": {"qr_token": new_token}})
+    return {"qr_token": new_token}
+
+
 @api.get("/customers")
 async def list_customers(q: Optional[str] = None, user: dict = Depends(current_user)):
     query: dict = {}

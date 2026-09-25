@@ -8,12 +8,13 @@ export const api = axios.create({
   withCredentials: true,
 });
 
-// Attach bearer as backup for cross-site cookie environments
 api.interceptors.request.use((config) => {
-  const t = localStorage.getItem("vapepos_token");
-  if (t && !config.headers.Authorization) {
-    config.headers.Authorization = `Bearer ${t}`;
-  }
+  if (config.headers.Authorization) return config;
+  const url = String(config.url || "");
+  const isCustomer = url.startsWith("/customer") || url.startsWith("customer");
+  const key = isCustomer ? "vapepos_customer_token" : "vapepos_token";
+  const t = localStorage.getItem(key);
+  if (t) config.headers.Authorization = `Bearer ${t}`;
   return config;
 });
 

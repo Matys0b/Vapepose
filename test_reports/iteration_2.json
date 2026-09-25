@@ -1,0 +1,46 @@
+{
+  "summary": "Phase 2 delta backend testing: accounting summary/timeseries/CSV, expenses CRUD, bulk stock, self-service store switch. Built new pytest file test_accounting_phase2.py with 24 tests. All 24 pass. Previous iteration_1 suite (33 tests) untouched.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/accounting/summary", "issue": "gross_margin_estimate = total_ht - (expenses_total - expenses_vat) treats every euro of expenses as a COGS input. That equates operating expenses (rent, marketing, salaries) with cost-of-goods; the label 'gross margin' is misleading. Consider distinguishing purchase/inventory expenses from opex, or renaming the KPI to 'result_estimate_ht'."},
+      {"endpoint": "GET /api/accounting/summary", "issue": "vat_due = collected_VAT - deductible_expense_VAT. If a store has no purchases in the period the VAT deductible on stock purchases already made in prior periods is ignored — depends on business rules but noteworthy. Also negative vat_due is silently allowed (credit VAT). Consider surfacing as separate 'vat_credit' field for clarity."},
+      {"endpoint": "GET /api/accounting/summary", "issue": "Payments bucket lumps everything except cash/card into 'other' — the response contract loses fidelity for cheque/transfer/gift-card. Consider preserving the exact method label."},
+      {"endpoint": "GET /api/accounting/summary", "issue": "Date filter uses 'created_at' string comparison ($gte df, $lte dt where dt is 'YYYY-MM-DDT23:59:59'). Works only because created_at is ISO-8601 in UTC without timezone offset; if now_iso() ever returns +00:00 suffix this comparison breaks silently."},
+      {"endpoint": "GET /api/accounting/timeseries", "issue": "Week bucket key uses isocalendar().year/.week — cross-year weeks (e.g. 2025-W01 spanning Dec-Jan) can appear out of chronological order because sort is lexical on 'YYYY-Www'; acceptable within a single year but worth documenting."},
+      {"endpoint": "GET /api/accounting/export.csv", "issue": "CSV values are not quoted/escaped. If a user name or method label ever contains ';' or a newline, the CSV becomes malformed. product user_name comes from user document so low risk today, but hardening with csv.writer is trivial."},
+      {"endpoint": "POST /api/stock/bulk", "issue": "Silently skipping unknown product_id makes debugging bulk-imports hard. Consider returning {updated, skipped:[ids]} so the UI can display 'N lignes ignorées (produit inconnu)'."},
+      {"endpoint": "POST /api/stock/bulk", "issue": "No transactional guarantee — if the process is killed mid-loop the products collection has partial increments and stock_movements has a subset. For a single-store POS this is acceptable but note it."},
+      {"endpoint": "POST /api/auth/switch-store", "issue": "Updates user's store_id in DB but the currently-issued JWT/session cookie is not invalidated. Any code path that reads store from the token (not the DB) will see the stale value. Currently backend re-reads from DB via current_user, so OK — but any future middleware caching decision must respect this."},
+      {"endpoint": "POST /api/auth/switch-store", "issue": "Any authenticated user (including cashier) can move themselves to any store — no permission check. If stores represent tenant boundaries this is a data-isolation risk."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_accounting_phase2.py",
+    "/app/test_reports/pytest/phase2_results.xml"
+  ],
+  "action_items": [
+    "Consider renaming/refining gross_margin_estimate — current formula counts all expenses as COGS.",
+    "Return skipped product_ids from POST /api/stock/bulk for better bulk-import UX.",
+    "Quote CSV fields (csv.writer) in /accounting/export.csv to protect against ';' / newline in labels.",
+    "Decide whether /auth/switch-store should be role-gated (e.g. admin/manager only) or scoped to stores the user belongs to."
+  ],
+  "critical_code_review_comments": [
+    "server.py has grown to 1197 lines (up from 937) — well past the 700-line threshold. Split into routers/accounting.py, routers/expenses.py, routers/stock.py, etc.",
+    "Accounting summary is O(N sales * M items) in Python — for a full-year report on a busy store this will slow /accounting/summary. A MongoDB aggregation pipeline ($group on vat_rate, $unwind items, etc.) would scale far better.",
+    "vat_by_rate slot dict stores rate as float and key as formatted string — a small enum/table of VAT rates would be safer than reformatting on the fly.",
+    "Date-range helper _iso_range concatenates 'T23:59:59' with no timezone offset and compares against created_at strings. Works today because seed/create use timezone-naive ISO — a coupling to document.",
+    "stock/bulk 'silently skip unknown' behaviour is intentional but undocumented — surface it in the response."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_accounting_phase2.py (new — 24 tests)"
+  ],
+  "success_rate": {"backend": "100% (24/24 new + 33/33 existing)", "frontend": "not tested"},
+  "test_credentials": "Admin 4gr7wkdgjn@privaterelay.appleid.com / ChangeMe2026!; Manager manager@vapepos.local / Manager2026!; Cashier vendeur@vapepos.local / Vendeur2026!",
+  "seed_data_creation": "Tests created and deleted their own TEST_-prefixed expenses. Bulk-stock test left +3/+5 stock deltas on the first two products (non-destructive, matches iteration_1 pattern of leaving TEST_ movements in DB). Cashier's store_id was set to the first store id via /auth/switch-store — verify this does not affect subsequent cashier flows in later iterations (all seeded stores are equivalent).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_accounting_phase2.py /app/backend/tests/backend_test.py -v -o addopts=''. Both suites are independent and idempotent. Cashier store_id may have been changed by TestStoreSwitch; if a test needs the original store, reset via admin PATCH /api/users/{id} or accept the switch. gross_margin_estimate semantics are debatable — flagged as minor.",
+  "rca of the issue": "No bugs found in this iteration. All endpoint contracts match spec: expense vat_amount is TTC-based (verified 120@20%->20.00), bulk-stock skips unknown product_ids and the 'updated' count decreases (verified: 4 lines including 1 unknown + 1 zero -> updated=2), switch-store 404s for unknown ids and persists to /me. Cashier is 403 on all admin/manager endpoints; unauthenticated calls to switch-store return 401. CSV first line matches the exact header spec."
+}

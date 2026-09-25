@@ -29,7 +29,8 @@ users · stores · categories · products · customers · sales · cash_sessions
 - Auth email + PIN quick-switch, /me via cookie ou Bearer, logout
 - Users CRUD avec gardes de rôle (admin only pour créer)
 - Catalogue produits + catégories + recherche + lookup EAN
-- Écran POS paysage 65/35 : catégories, favoris, grille tactile, panier collant, action bar
+- Écran POS paysage 65/35 : catégories, favoris, grille tactile, panier collant à droite, action bar
+- Store switcher dans le top bar POS (change de magasin sans se relogguer)
 - Panier : ajout, +/-, remise ligne, remise globale, suppression, TVA 20% TTC
 - Scanner : modal caméra + saisie manuelle + listener HID global (scanner USB/BT clavier)
 - Modal paiement : Espèces (numpad + quick 5/10/20/50/exact), CB (TPE simulé), Autre, Mixte, calcul "à rendre"
@@ -38,8 +39,12 @@ users · stores · categories · products · customers · sales · cash_sessions
 - Suspension / reprise paniers
 - Clients : recherche, création, QR token, historique, fidélité auto (1€ = 1 pt)
 - Stock : ajustement +/-, motifs (réception/casse/inventaire/transfert), mouvements
+- **Réception rapide de stock (bulk)** : scan HID + ajout multi-produits en un tap, motif configurable
 - Fournisseurs : liste + création
-- Back-office : Dashboard (CA jour, ventes, panier moyen, low stock, top produits), Ventes + remboursement, Produits, Stock, Fournisseurs, Clients, Utilisateurs
+- Back-office étendu : Dashboard, Ventes + remboursement, Produits, Stock, Fournisseurs, Clients, Utilisateurs
+- **Comptabilité complète** : CA TTC/HT/TVA, ventilation TVA par taux, moyens de paiement (pie chart), CA par vendeur, CA par catégorie, timeseries (jour/semaine/mois), export CSV, KPI marge brute estimée, TVA due
+- **Dépenses** : CRUD avec catégories (Loyer, Marchandises, Salaires, Fournitures, Marketing…), TVA déductible auto, mode de paiement, filtres date
+- **Statistiques** : graphiques 7j / 30j / 90j / 1 an, top catégories, répartition paiements, marge estimée
 - Audit logs sur actions sensibles
 - Seed : 2 magasins, 4 utilisateurs, 10 catégories, 17 produits vape, 2 clients
 

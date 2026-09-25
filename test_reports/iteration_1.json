@@ -1,0 +1,45 @@
+{
+  "summary": "First-run backend regression testing of VapePOS. Built pytest suite covering auth (email+password, PIN, /me via cookie & bearer), catalog (categories, products, favorite, search, EAN lookup), cash sessions (open/current/double/close), sales (VAT, stock decrement, change_due, insufficient payment, loyalty, refund by admin, cashier forbidden), suspended carts, stock/adjust + movements, customers (search, create + QR lookup), suppliers, users role guard, dashboard stats. Found 2 critical backend bugs and fixed them (allowed scope). Final: 33/33 tests pass.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/auth/login (and UserCreate, UserOut)", "issue": "Pydantic EmailStr rejected the seeded manager/cashier emails ('manager@vapepos.local', 'vendeur@vapepos.local', 'vendeur2@vapepos.local') because email-validator treats '.local' as a reserved special-use TLD, returning 422 before any password check. Manager and both cashiers could NOT log in with email+password. Fixed by relaxing LoginIn.email / UserCreate.email / UserOut.email from EmailStr to str (still lowercased server-side). PIN login was unaffected.", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/customers, POST /api/products, POST /api/categories, POST /api/suppliers", "issue": "Endpoints returned the dict that was passed to motor's insert_one(), which mutates it in place adding a BSON ObjectId under '_id'. FastAPI's jsonable_encoder then raised 500 (ObjectId not iterable). Confirmed by reproducing on POST /api/customers. Fixed by popping '_id' from doc before returning in all four endpoints.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "CORS", "issue": "CORS_ORIGINS defaults to '*' while cookies are set with SameSite=None; Secure and allow_credentials=True. Browsers reject wildcard origin with credentials — for the deployed frontend to receive httpOnly cookies, CORS_ORIGINS must be set to explicit origin(s) (e.g. https://vape-register-1.preview.emergentagent.com). Bearer-token flow works either way, but cookie-based auth from the browser will fail with the current default."},
+      {"endpoint": "DELETE /api/suspended-carts/{cid}", "issue": "Endpoint name/verb suggests deletion but implementation sets resumed_at (soft-resume). Not returning 404 for unknown ids. Cosmetic – behaves correctly for the UI round-trip."},
+      {"endpoint": "GET /api/customers?q=", "issue": "Regex query is unescaped – input with regex meta-chars could bypass or throw. Not a blocker but should use re.escape."},
+      {"endpoint": "POST /api/auth/pin-login", "issue": "Iterates all users with a bcrypt check per user — O(N * bcrypt_cost). Fine for 4 seeded users but does not scale. Also allows PIN collisions to silently authenticate as whichever user is returned first by the cursor."},
+      {"endpoint": "GET /api/dashboard/stats", "issue": "Filters today's sales with {'created_at': {'$gte': today}} where today is 'YYYY-MM-DD' and created_at is a full ISO string – works because ISO strings sort lexicographically, but relies on that assumption."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Review the EmailStr relaxation — if strict validation is desired, switch the seeded local users to a public-TLD domain (e.g. @vapepos.test is also reserved; @vapepos.io works) OR keep the str fix. Test agent chose the latter to match the credentials already documented in /app/memory/test_credentials.md.",
+    "Set CORS_ORIGINS in backend/.env to the explicit REACT_APP_BACKEND_URL origin so httpOnly cookies work in-browser (SameSite=None + Secure require non-wildcard origin when allow_credentials=True).",
+    "Consider auditing all other insert_one/find_one_and_update responses (currently create_sale, open_session, suspend_cart already pop _id — good).",
+    "Harden pin-login: enforce PIN uniqueness at seed/create time or match by (user_id + pin) rather than scanning."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 937 lines – above the recommended 700-line threshold. Split into routers per domain (auth, sales, cash_sessions, stock, dashboard) for maintainability.",
+    "insert_one mutates its argument – always pop _id before returning the document (still 4 endpoints needed patching in this iteration).",
+    "EmailStr with .local TLD is unsafe for internal-only test emails – prefer plain str + manual regex or use email_validator with allow_smtputf8/deliverability options disabled and reserved-domain whitelist.",
+    "CORS wildcard with allow_credentials=True is invalid for browsers – must be explicit origin list in prod.",
+    "No rate limiting / brute-force protection on /auth/login or /auth/pin-login (playbook expects lockout after 5 fails)."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (LoginIn/UserCreate/UserOut email -> str; pop _id after insert in create_category/create_product/create_customer/create_supplier)",
+    "/app/backend/tests/backend_test.py (new pytest suite)"
+  ],
+  "success_rate": {"backend": "100% (33/33 after fixes)", "frontend": "not tested"},
+  "test_credentials": "Admin 4gr7wkdgjn@privaterelay.appleid.com / ChangeMe2026!; Manager manager@vapepos.local / Manager2026! (PIN 2580); Cashier vendeur@vapepos.local / Vendeur2026! (PIN 1234); Cashier vendeur2@vapepos.local / Vendeur2026! (PIN 4321).",
+  "seed_data_creation": "Seed runs on backend startup (stores, 4 users, 10 categories, 17 products, 2 customers, loyalty settings). Test suite created several TEST_ prefixed customers/suppliers/users and stock movements – left in DB for traceability but non-conflicting.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is at 100%. Two critical bugs already fixed in server.py by this agent. If retesting, run: `pytest /app/backend/tests/backend_test.py -v`. Note the cashier cash-session is left CLOSED at end of run (TestZClose closes it). CORS_ORIGINS default '*' still needs main-agent attention for cookie-based flows from the browser. Frontend tests were not requested and were not executed.",
+  "rca of the issue": "Bug 1 (login 422 for @vapepos.local): pydantic v2 EmailStr uses email-validator which classifies .local as a reserved special-use domain (RFC 6762). Seed created users OK because seed builds dicts directly, but LoginIn validated request body and returned 422 before the handler ran. Fix: relax LoginIn.email/UserCreate.email/UserOut.email to plain str, retaining lowercase normalization. Bug 2 (500 on POST /api/customers etc.): motor's insert_one mutates the input dict, injecting a BSON ObjectId under '_id'. The handlers returned that mutated dict; FastAPI's jsonable_encoder cannot serialize ObjectId. Fix: pop '_id' after insert_one before returning."
+}

@@ -128,7 +128,7 @@ async def audit(actor: dict, action: str, entity: str, entity_id: Optional[str] 
 
 # --- Models ---------------------------------------------------------------
 class LoginIn(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
@@ -139,14 +139,14 @@ class PinLoginIn(BaseModel):
 class UserOut(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
-    email: EmailStr
+    email: str
     name: str
     role: Literal["admin", "manager", "cashier"]
     store_id: Optional[str] = None
 
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    email: str
     name: str
     password: str
     pin: Optional[str] = None
@@ -521,6 +521,7 @@ async def list_categories(user: dict = Depends(current_user)):
 async def create_category(body: CategoryIn, actor: dict = Depends(require_role("admin", "manager"))):
     doc = Category(**body.model_dump()).model_dump()
     await db.categories.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 
@@ -557,6 +558,7 @@ async def create_product(body: ProductIn, actor: dict = Depends(require_role("ad
     doc = Product(**body.model_dump()).model_dump()
     doc["created_at"] = now_iso()
     await db.products.insert_one(doc)
+    doc.pop("_id", None)
     await audit(actor, "product.create", "products", doc["id"], {"name": doc["name"]})
     return doc
 
@@ -599,6 +601,7 @@ async def customer_by_qr(token: str, user: dict = Depends(current_user)):
 async def create_customer(body: CustomerIn, user: dict = Depends(current_user)):
     doc = Customer(**body.model_dump()).model_dump()
     await db.customers.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 
@@ -883,6 +886,7 @@ async def list_suppliers(user: dict = Depends(current_user)):
 async def create_supplier(body: SupplierIn, actor: dict = Depends(require_role("admin", "manager"))):
     doc = {"id": new_id(), **body.model_dump(), "created_at": now_iso()}
     await db.suppliers.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 

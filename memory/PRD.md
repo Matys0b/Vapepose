@@ -37,6 +37,10 @@ Trois profils administrateurs — sélection par cartes au login puis PIN 4 chif
 users · stores · categories · products · customers · sales · cash_sessions · stock_movements · suppliers · suspended_carts · loyalty_transactions · audit_logs · app_settings · counters
 
 ## Implémenté (25 Feb 2026)
+- **PWA installable** : manifest, service worker, icônes 192/256/384/512 + apple-touch-icon 180, splash iPad landscape 3 tailles + Android 1920×1080, meta iOS (`apple-mobile-web-app-capable`, splash-image), thème #0F0B1E
+- **Mode kiosque** (actif automatiquement en display=standalone) : trap back-button, blocage context menu + zoom double-tap, fullscreen au 1er tap, Wake Lock pour empêcher la mise en veille
+- **Bannière d'installation** discrète (chip violet) + dialog iPad "Partager → Sur l'écran d'accueil"
+- **Bannière hors-ligne** (pill rose top) sur `navigator.onLine`
 - Auth email + PIN quick-switch, /me via cookie ou Bearer, logout
 - Users CRUD avec gardes de rôle (admin only pour créer)
 - Catalogue produits + catégories + recherche + lookup EAN

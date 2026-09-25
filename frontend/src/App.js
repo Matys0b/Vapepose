@@ -1,6 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { Toaster } from "sonner";
+import InstallBanner from "./components/InstallBanner";
+import KioskMode from "./components/KioskMode";
+import OfflineBanner from "./components/OfflineBanner";
 import Login from "./pages/Login";
 import POS from "./pages/POS";
 import BackOfficeLayout from "./pages/BackOfficeLayout";
@@ -37,6 +40,9 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Toaster position="top-right" theme="dark" richColors closeButton />
+        <KioskMode />
+        <OfflineBanner />
+        <InstallBanner />
         <Routes>
           <Route path="/" element={<LandingRedirect />} />
           <Route path="/login" element={<Login />} />

@@ -3,8 +3,9 @@ import { api, formatApiError } from "../lib/api";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, PackagePlus } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
+import BulkStockModal from "../components/BulkStockModal";
 
 export default function StockPage() {
   const [products, setProducts] = useState([]);
@@ -12,6 +13,7 @@ export default function StockPage() {
   const [adjust, setAdjust] = useState(null);
   const [delta, setDelta] = useState(1);
   const [reason, setReason] = useState("reception");
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const load = () => {
     api.get("/products", { params: { limit: 500 } }).then((r) => setProducts(r.data));
@@ -29,7 +31,12 @@ export default function StockPage() {
 
   return (
     <div className="space-y-4" data-testid="stock-page">
-      <h1 className="font-display text-3xl font-black">Stock</h1>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="font-display text-3xl font-black">Stock</h1>
+        <Button onClick={() => setBulkOpen(true)} className="bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold" data-testid="btn-bulk-receive">
+          <PackagePlus className="w-4 h-4 mr-1" /> Réception rapide (scan)
+        </Button>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="bg-slate-900/70 border-violet-500/20 p-0 lg:col-span-2 overflow-hidden">
@@ -99,6 +106,7 @@ export default function StockPage() {
           )}
         </DialogContent>
       </Dialog>
+      {bulkOpen && <BulkStockModal onClose={() => setBulkOpen(false)} onDone={load} />}
     </div>
   );
 }

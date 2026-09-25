@@ -932,6 +932,261 @@ async def loyalty_settings(user: dict = Depends(current_user)):
     return doc
 
 
+# --- Expenses (Dépenses) -------------------------------------------------
+class ExpenseIn(BaseModel):
+    label: str
+    amount: float
+    vat_rate: float = 20.0
+    category: str = "Général"
+    supplier_id: Optional[str] = None
+    payment_method: Literal["card", "cash", "transfer", "other"] = "card"
+    at: Optional[str] = None
+    note: Optional[str] = None
+
+
+@api.get("/expenses")
+async def list_expenses(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    q: dict = {}
+    if date_from or date_to:
+        q["at"] = {}
+        if date_from:
+            q["at"]["$gte"] = date_from
+        if date_to:
+            q["at"]["$lte"] = date_to + "T23:59:59"
+    items = await db.expenses.find(q, {"_id": 0}).sort("at", -1).limit(500).to_list(500)
+    return items
+
+
+@api.post("/expenses")
+async def create_expense(body: ExpenseIn, actor: dict = Depends(require_role("admin", "manager"))):
+    doc = {
+        "id": new_id(),
+        "label": body.label,
+        "amount": round(body.amount, 2),
+        "vat_rate": body.vat_rate,
+        "vat_amount": round(body.amount - body.amount / (1 + body.vat_rate / 100), 2),
+        "category": body.category,
+        "supplier_id": body.supplier_id,
+        "payment_method": body.payment_method,
+        "at": body.at or now_iso(),
+        "note": body.note,
+        "created_by": actor["id"],
+        "created_at": now_iso(),
+    }
+    await db.expenses.insert_one(doc)
+    doc.pop("_id", None)
+    await audit(actor, "expense.create", "expenses", doc["id"], {"amount": doc["amount"]})
+    return doc
+
+
+@api.delete("/expenses/{eid}")
+async def delete_expense(eid: str, actor: dict = Depends(require_role("admin", "manager"))):
+    r = await db.expenses.delete_one({"id": eid})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Dépense introuvable")
+    await audit(actor, "expense.delete", "expenses", eid)
+    return {"ok": True}
+
+
+# --- Accounting summary --------------------------------------------------
+def _iso_range(date_from: Optional[str], date_to: Optional[str]):
+    today = datetime.now(timezone.utc)
+    if not date_from:
+        date_from = today.replace(day=1).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = today.strftime("%Y-%m-%d")
+    return date_from, date_to + "T23:59:59"
+
+
+@api.get("/accounting/summary")
+async def accounting_summary(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    df, dt = _iso_range(date_from, date_to)
+    sales = await db.sales.find(
+        {"status": "completed", "created_at": {"$gte": df, "$lte": dt}},
+        {"_id": 0},
+    ).to_list(20000)
+
+    total_ttc = 0.0
+    total_ht = 0.0
+    total_vat = 0.0
+    vat_by_rate: dict = {}
+    pay_by_method = {"cash": 0.0, "card": 0.0, "other": 0.0}
+    ca_by_user: dict = {}
+    ca_by_category: dict = {}
+
+    # cache category names
+    cats = await db.categories.find({}, {"_id": 0}).to_list(200)
+    cat_name = {c["id"]: c["name"] for c in cats}
+    prods = await db.products.find({}, {"_id": 0}).to_list(2000)
+    prod_cat = {p["id"]: p.get("category_id") for p in prods}
+
+    for s in sales:
+        total_ttc += s["total"]
+        total_vat += s.get("vat_total", 0.0)
+        total_ht += s["total"] - s.get("vat_total", 0.0)
+        for it in s["items"]:
+            line = it["unit_price"] * it["quantity"] - it.get("discount", 0)
+            rate = it.get("vat_rate", 20.0)
+            key = f"{rate:.1f}"
+            slot = vat_by_rate.setdefault(key, {"rate": rate, "ht": 0.0, "vat": 0.0, "ttc": 0.0})
+            ht = line / (1 + rate / 100)
+            slot["ttc"] += line
+            slot["ht"] += ht
+            slot["vat"] += line - ht
+            cid = prod_cat.get(it["product_id"])
+            cname = cat_name.get(cid, "Autres")
+            ca_by_category[cname] = ca_by_category.get(cname, 0.0) + line
+        for p in s["payments"]:
+            m = p["method"] if p["method"] in pay_by_method else "other"
+            pay_by_method[m] += p["amount"]
+        u = s.get("user_name", "—")
+        ca_by_user[u] = ca_by_user.get(u, 0.0) + s["total"]
+
+    exp = await db.expenses.find(
+        {"at": {"$gte": df, "$lte": dt}}, {"_id": 0}
+    ).to_list(5000)
+    exp_total = sum(e["amount"] for e in exp)
+    exp_vat = sum(e.get("vat_amount", 0.0) for e in exp)
+
+    def r(x): return round(x, 2)
+
+    return {
+        "range": {"from": df[:10], "to": dt[:10]},
+        "sales": {
+            "count": len(sales),
+            "total_ttc": r(total_ttc),
+            "total_ht": r(total_ht),
+            "total_vat_collected": r(total_vat),
+            "avg_basket": r(total_ttc / len(sales)) if sales else 0.0,
+        },
+        "vat_by_rate": [
+            {"rate": v["rate"], "ht": r(v["ht"]), "vat": r(v["vat"]), "ttc": r(v["ttc"])}
+            for v in sorted(vat_by_rate.values(), key=lambda x: -x["rate"])
+        ],
+        "payments": {k: r(v) for k, v in pay_by_method.items()},
+        "ca_by_user": [{"user": k, "total": r(v)} for k, v in sorted(ca_by_user.items(), key=lambda x: -x[1])],
+        "ca_by_category": [{"category": k, "total": r(v)} for k, v in sorted(ca_by_category.items(), key=lambda x: -x[1])],
+        "expenses": {
+            "count": len(exp),
+            "total": r(exp_total),
+            "vat_deductible": r(exp_vat),
+        },
+        "vat_due": r(total_vat - exp_vat),
+        "gross_margin_estimate": r(total_ht - (exp_total - exp_vat)),
+    }
+
+
+@api.get("/accounting/timeseries")
+async def accounting_timeseries(
+    period: Literal["day", "week", "month"] = "day",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    df, dt = _iso_range(date_from, date_to)
+    sales = await db.sales.find(
+        {"status": "completed", "created_at": {"$gte": df, "$lte": dt}},
+        {"_id": 0},
+    ).to_list(20000)
+    buckets: dict = {}
+    for s in sales:
+        d = s["created_at"][:10]
+        if period == "month":
+            key = d[:7]
+        elif period == "week":
+            dt_obj = datetime.fromisoformat(d)
+            key = f"{dt_obj.isocalendar().year}-W{dt_obj.isocalendar().week:02d}"
+        else:
+            key = d
+        b = buckets.setdefault(key, {"key": key, "total": 0.0, "count": 0})
+        b["total"] += s["total"]
+        b["count"] += 1
+    series = sorted(buckets.values(), key=lambda x: x["key"])
+    for b in series:
+        b["total"] = round(b["total"], 2)
+    return series
+
+
+@api.get("/accounting/export.csv")
+async def accounting_export(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    from fastapi.responses import Response as FResponse
+    df, dt = _iso_range(date_from, date_to)
+    sales = await db.sales.find(
+        {"status": "completed", "created_at": {"$gte": df, "$lte": dt}},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(20000)
+    lines = ["numero;date;vendeur;total_ttc;total_ht;tva;moyens_paiement;nb_articles"]
+    for s in sales:
+        methods = "|".join(f"{p['method']}:{p['amount']}" for p in s["payments"])
+        nb = sum(i["quantity"] for i in s["items"])
+        lines.append(
+            f"{s['number']};{s['created_at']};{s.get('user_name','')};{s['total']};"
+            f"{round(s['total'] - s.get('vat_total',0),2)};{s.get('vat_total',0)};{methods};{nb}"
+        )
+    csv = "\n".join(lines)
+    return FResponse(content=csv, media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="ventes_{df[:10]}_{dt[:10]}.csv"'
+    })
+
+
+# --- Bulk stock ----------------------------------------------------------
+class BulkStockLine(BaseModel):
+    product_id: str
+    delta: int
+
+
+class BulkStockIn(BaseModel):
+    lines: List[BulkStockLine]
+    reason: str = "reception"
+    supplier_id: Optional[str] = None
+
+
+@api.post("/stock/bulk")
+async def stock_bulk(body: BulkStockIn, actor: dict = Depends(require_role("admin", "manager"))):
+    if not body.lines:
+        raise HTTPException(400, "Aucune ligne")
+    updated = []
+    for ln in body.lines:
+        if ln.delta == 0:
+            continue
+        r = await db.products.update_one({"id": ln.product_id}, {"$inc": {"stock": ln.delta}})
+        if r.matched_count == 0:
+            continue
+        await db.stock_movements.insert_one({
+            "id": new_id(), "product_id": ln.product_id, "delta": ln.delta,
+            "reason": body.reason, "supplier_id": body.supplier_id, "at": now_iso(), "user_id": actor["id"],
+        })
+        updated.append(ln.product_id)
+    await audit(actor, "stock.bulk", "products", None, {"count": len(updated), "reason": body.reason})
+    return {"updated": len(updated)}
+
+
+# --- Store switch (self-service) ----------------------------------------
+class StoreSwitchIn(BaseModel):
+    store_id: str
+
+
+@api.post("/auth/switch-store")
+async def switch_store(body: StoreSwitchIn, user: dict = Depends(current_user)):
+    s = await db.stores.find_one({"id": body.store_id})
+    if not s:
+        raise HTTPException(404, "Magasin introuvable")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"store_id": body.store_id}})
+    return {"ok": True, "store_id": body.store_id}
+
+
 # --- Health --------------------------------------------------------------
 @api.get("/")
 async def root():

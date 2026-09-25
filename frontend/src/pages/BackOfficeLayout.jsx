@@ -2,7 +2,8 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
 import {
-  LayoutDashboard, Package, Receipt, Users, Boxes, Truck, UserCog, ArrowLeft, LogOut, Zap
+  LayoutDashboard, Package, Receipt, Users, Boxes, Truck, UserCog, ArrowLeft, LogOut, Zap,
+  Calculator, BarChart3, Wallet
 } from "lucide-react";
 
 export default function BackOfficeLayout() {
@@ -16,6 +17,9 @@ export default function BackOfficeLayout() {
     { to: "/admin/stock", label: "Stock", icon: Boxes },
     { to: "/admin/fournisseurs", label: "Fournisseurs", icon: Truck },
     { to: "/admin/clients", label: "Clients", icon: Users },
+    { to: "/admin/comptabilite", label: "Comptabilité", icon: Calculator },
+    { to: "/admin/depenses", label: "Dépenses", icon: Wallet },
+    { to: "/admin/statistiques", label: "Statistiques", icon: BarChart3 },
     { to: "/admin/utilisateurs", label: "Utilisateurs", icon: UserCog, adminOnly: true },
   ];
 

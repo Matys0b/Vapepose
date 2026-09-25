@@ -11,6 +11,9 @@ import CustomersPage from "./pages/Customers";
 import StockPage from "./pages/Stock";
 import SuppliersPage from "./pages/Suppliers";
 import UsersPage from "./pages/Users";
+import Accounting from "./pages/Accounting";
+import Expenses from "./pages/Expenses";
+import Statistics from "./pages/Statistics";
 import "./App.css";
 
 function Protected({ children, roles }) {
@@ -45,6 +48,9 @@ function App() {
             <Route path="clients" element={<CustomersPage />} />
             <Route path="stock" element={<StockPage />} />
             <Route path="fournisseurs" element={<SuppliersPage />} />
+            <Route path="comptabilite" element={<Accounting />} />
+            <Route path="statistiques" element={<Statistics />} />
+            <Route path="depenses" element={<Expenses />} />
             <Route path="utilisateurs" element={<UsersPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

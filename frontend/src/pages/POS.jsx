@@ -30,6 +30,7 @@ export default function POS() {
   const [customer, setCustomer] = useState(null);
   const [globalDiscount, setGlobalDiscount] = useState(0);
   const [session, setSession] = useState(null);
+  const [stores, setStores] = useState([]);
   const [showSession, setShowSession] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -63,7 +64,7 @@ export default function POS() {
     setSuspendedCount(data.length);
   }, []);
 
-  useEffect(() => { loadCategories(); loadSession(); loadSuspended(); }, [loadCategories, loadSession, loadSuspended]);
+  useEffect(() => { loadCategories(); loadSession(); loadSuspended(); api.get("/stores").then((r) => setStores(r.data)); }, [loadCategories, loadSession, loadSuspended]);
   useEffect(() => { loadProducts(); }, [loadProducts]);
 
   // HID barcode scanner listener (fast-typing input outside form fields)
@@ -209,6 +210,19 @@ export default function POS() {
             <div className="text-[10px] uppercase tracking-widest text-violet-300/70">Cha Va'Pote</div>
           </div>
           <div className="hidden md:flex items-center gap-2 ml-4">
+            {stores.length > 0 && (
+              <select
+                value={user?.store_id || ""}
+                onChange={async (e) => {
+                  try { await api.post("/auth/switch-store", { store_id: e.target.value }); toast.success("Magasin sélectionné"); window.location.reload(); }
+                  catch (err) { toast.error("Erreur"); void err; }
+                }}
+                className="h-9 rounded-lg bg-slate-900/70 border border-violet-500/20 text-slate-100 px-2 text-sm"
+                data-testid="store-switcher"
+              >
+                {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
             {session ? (
               <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30" data-testid="badge-session-open">
                 Caisse ouverte · Fond {fmt(session.opening_amount)}

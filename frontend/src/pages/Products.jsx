@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { api, formatApiError } from "../lib/api";
+import { api, API, formatApiError } from "../lib/api";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -7,8 +7,16 @@ import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
 import { toast } from "sonner";
 import {
   ChevronRight, Home, FolderPlus, Plus, Edit, Trash2, Upload, Package, Star,
-  Search, Layers, Download
+  Search, Layers, Download, Image as ImageIcon, GripVertical
 } from "lucide-react";
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors, KeyboardSensor,
+} from "@dnd-kit/core";
+import {
+  SortableContext, arrayMove, useSortable, sortableKeyboardCoordinates,
+  rectSortingStrategy, verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const fmt = (n) => `${(Math.round(n * 100) / 100).toFixed(2).replace(".", ",")} €`;
 
@@ -18,7 +26,7 @@ const emptyProduct = {
 };
 
 export default function ProductsPage() {
-  const [currentId, setCurrentId] = useState(null); // null = root
+  const [currentId, setCurrentId] = useState(null);
   const [view, setView] = useState({ category: null, breadcrumb: [], children: [], product_count: 0 });
   const [products, setProducts] = useState([]);
   const [q, setQ] = useState("");
@@ -27,35 +35,33 @@ export default function ProductsPage() {
   const [creatingCat, setCreatingCat] = useState(false);
   const [catName, setCatName] = useState("");
   const [importing, setImporting] = useState(false);
+  const [imgLookup, setImgLookup] = useState(false);
 
   const loadView = useCallback(async () => {
     if (!currentId) {
-      const [rootCats, prods] = await Promise.all([
+      const [rootCats, tree] = await Promise.all([
         api.get("/categories", { params: { parent_id: "root" } }),
-        [], // don't load products at root
+        api.get("/categories/tree"),
       ]);
-      const counts = await api.get("/categories/tree");
       const map = {};
       const walk = (arr) => arr.forEach((c) => { map[c.id] = c.product_count; walk(c.children || []); });
-      walk(counts.data);
+      walk(tree.data);
       setView({
-        category: null,
-        breadcrumb: [],
+        category: null, breadcrumb: [],
         children: rootCats.data.map((c) => ({ ...c, product_count: map[c.id] || 0 })),
         product_count: 0,
       });
       setProducts([]);
       return;
     }
-    const [v, p] = await Promise.all([
+    const [v, p, tree] = await Promise.all([
       api.get(`/categories/${currentId}`),
       api.get("/products", { params: { category_id: currentId } }),
+      api.get("/categories/tree"),
     ]);
-    // enrich children with product counts (from tree)
-    const t = await api.get("/categories/tree");
     const map = {};
     const walk = (arr) => arr.forEach((c) => { map[c.id] = c.product_count; walk(c.children || []); });
-    walk(t.data);
+    walk(tree.data);
     setView({ ...v.data, children: (v.data.children || []).map((c) => ({ ...c, product_count: map[c.id] || 0 })) });
     setProducts(p.data);
   }, [currentId]);
@@ -65,16 +71,24 @@ export default function ProductsPage() {
   const filtered = products.filter((p) => !q || `${p.name} ${p.brand} ${p.ean} ${p.sku}`.toLowerCase().includes(q.toLowerCase()));
 
   const openProduct = (p) => { setEditing(p); setPForm(p ? { ...emptyProduct, ...p } : emptyProduct); };
+
+  const lookupImage = async () => {
+    if (!pForm.ean) { toast.error("Renseignez l'EAN d'abord"); return; }
+    setImgLookup(true);
+    try {
+      const { data } = await api.get("/products/lookup-image", { params: { ean: pForm.ean } });
+      if (data.image_url) { setPForm((f) => ({ ...f, image_url: data.image_url })); toast.success("Image trouvée"); }
+      else toast.error("Aucune image publique pour cet EAN");
+    } catch (e) { toast.error(formatApiError(e)); } finally { setImgLookup(false); }
+  };
+
   const submitProduct = async (e) => {
     e.preventDefault();
     const body = {
-      ...pForm,
-      category_id: currentId,
-      price: parseFloat(pForm.price) || 0,
-      cost_price: parseFloat(pForm.cost_price) || 0,
+      ...pForm, category_id: currentId,
+      price: parseFloat(pForm.price) || 0, cost_price: parseFloat(pForm.cost_price) || 0,
       vat_rate: parseFloat(pForm.vat_rate) || 20,
-      stock: parseInt(pForm.stock) || 0,
-      stock_alert: parseInt(pForm.stock_alert) || 5,
+      stock: parseInt(pForm.stock) || 0, stock_alert: parseInt(pForm.stock_alert) || 5,
     };
     try {
       if (editing?.id) await api.put(`/products/${editing.id}`, body);
@@ -91,7 +105,8 @@ export default function ProductsPage() {
   const submitCategory = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/categories", { name: catName, parent_id: currentId });
+      const nextOrder = view.children.length;
+      await api.post("/categories", { name: catName, parent_id: currentId, sort_order: nextOrder });
       setCreatingCat(false); setCatName(""); toast.success("Catégorie créée"); loadView();
     } catch (err) { toast.error(formatApiError(err)); }
   };
@@ -102,9 +117,51 @@ export default function ProductsPage() {
     catch (e) { toast.error(formatApiError(e)); }
   };
 
-  const goTo = (idx) => {
-    if (idx === -1) setCurrentId(null);
-    else setCurrentId(view.breadcrumb[idx].id);
+  const goTo = (idx) => idx === -1 ? setCurrentId(null) : setCurrentId(view.breadcrumb[idx].id);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const onDragCategories = async (e) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIdx = view.children.findIndex((c) => c.id === active.id);
+    const newIdx = view.children.findIndex((c) => c.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const next = arrayMove(view.children, oldIdx, newIdx);
+    setView((v) => ({ ...v, children: next }));
+    try {
+      await api.post("/categories/reorder", next.map((c, i) => ({ id: c.id, sort_order: i })));
+    } catch (err) { toast.error(formatApiError(err)); loadView(); }
+  };
+
+  const onDragProducts = async (e) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIdx = products.findIndex((p) => p.id === active.id);
+    const newIdx = products.findIndex((p) => p.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const next = arrayMove(products, oldIdx, newIdx);
+    setProducts(next);
+    try {
+      await api.post("/products/reorder", next.map((p, i) => ({ id: p.id, sort_order: i })));
+    } catch (err) { toast.error(formatApiError(err)); loadView(); }
+  };
+
+  const exportCatalog = () => {
+    const t = localStorage.getItem("vapepos_token");
+    const url = `${API}/products/export.csv`;
+    fetch(url, { credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {} })
+      .then((r) => r.blob())
+      .then((b) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(b);
+        a.download = `catalog_${Date.now()}.csv`;
+        a.click();
+        toast.success("Catalogue exporté");
+      });
   };
 
   return (
@@ -112,6 +169,9 @@ export default function ProductsPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="font-display text-3xl font-black">Produits</h1>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={exportCatalog} data-testid="btn-export-catalog">
+            <Download className="w-4 h-4 mr-1" /> Exporter CSV
+          </Button>
           <Button variant="outline" onClick={() => setImporting(true)} data-testid="btn-import-products">
             <Upload className="w-4 h-4 mr-1" /> Importer CSV
           </Button>
@@ -126,7 +186,6 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Breadcrumb */}
       <div className="flex items-center gap-1 text-sm flex-wrap">
         <button onClick={() => goTo(-1)} className="flex items-center gap-1 px-2 h-8 rounded-lg hover:bg-slate-900 text-slate-300" data-testid="crumb-root">
           <Home className="w-3.5 h-3.5" /> Toutes les catégories
@@ -141,50 +200,35 @@ export default function ProductsPage() {
         ))}
       </div>
 
-      {/* Sub-categories grid */}
       {view.children.length > 0 && (
         <div>
-          <div className="text-xs uppercase tracking-widest text-slate-400 mb-2">
+          <div className="text-xs uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-2">
             {currentId ? "Sous-catégories" : "Catégories principales"}
+            <span className="text-[10px] normal-case tracking-normal text-slate-500">· glisse pour réordonner</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {view.children.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setCurrentId(c.id)}
-                className="group text-left rounded-2xl p-4 bg-slate-900/70 border border-violet-500/15 hover:border-fuchsia-500/50 transition relative"
-                data-testid={`cat-tile-${c.id}`}
-                style={c.color ? { boxShadow: `0 0 0 1px ${c.color}22 inset` } : undefined}
-              >
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center mb-2"
-                  style={{ background: c.color ? `linear-gradient(135deg, ${c.color}, #EC4899)` : "linear-gradient(135deg,#8B5CF6,#EC4899)" }}
-                >
-                  <Layers className="w-5 h-5 text-white" />
-                </div>
-                <div className="font-display font-bold text-lg leading-tight">{c.name}</div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  {c.product_count} produit(s)
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); deleteCategory(c); }}
-                  className="absolute top-2 right-2 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition"
-                  data-testid={`btn-del-cat-${c.id}`}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </button>
-            ))}
-          </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragCategories}>
+            <SortableContext items={view.children.map((c) => c.id)} strategy={rectSortingStrategy}>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                {view.children.map((c) => (
+                  <SortableCategoryTile
+                    key={c.id}
+                    cat={c}
+                    onOpen={() => setCurrentId(c.id)}
+                    onDelete={() => deleteCategory(c)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         </div>
       )}
 
-      {/* Products list inside current category */}
       {currentId && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="text-xs uppercase tracking-widest text-slate-400">
               Produits dans "{view.category?.name}" — {products.length}
+              <span className="ml-2 text-[10px] normal-case tracking-normal text-slate-500">· glisse la poignée pour réordonner</span>
             </div>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -193,34 +237,20 @@ export default function ProductsPage() {
           </div>
           <Card className="bg-slate-900/70 border-violet-500/20 overflow-hidden">
             <div className="grid grid-cols-12 px-4 py-2 text-xs uppercase tracking-widest text-slate-400 border-b border-violet-500/15">
-              <div className="col-span-5">Produit</div>
+              <div className="col-span-1"></div>
+              <div className="col-span-4">Produit</div>
               <div className="col-span-2">Marque</div>
               <div className="col-span-2">Prix</div>
               <div className="col-span-1">Stock</div>
               <div className="col-span-2 text-right">Actions</div>
             </div>
-            {filtered.map((p) => (
-              <div key={p.id} className="grid grid-cols-12 px-4 py-2 items-center border-b border-violet-500/10 text-sm hover:bg-slate-950/40" data-testid={`row-product-${p.id}`}>
-                <div className="col-span-5 flex items-center gap-2">
-                  {p.is_favorite && <Star className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />}
-                  <div>
-                    <div className="font-semibold">{p.name}</div>
-                    <div className="text-xs text-slate-500">{p.variant} · {p.ean || p.sku || "—"}</div>
-                  </div>
-                </div>
-                <div className="col-span-2 text-slate-300">{p.brand}</div>
-                <div className="col-span-2 font-mono-num text-pink-300">{fmt(p.price)}</div>
-                <div className={`col-span-1 font-mono-num ${p.stock <= p.stock_alert ? "text-rose-300" : "text-slate-200"}`}>{p.stock}</div>
-                <div className="col-span-2 flex justify-end gap-1">
-                  <Button size="sm" variant="outline" onClick={() => openProduct(p)} data-testid={`btn-edit-product-${p.id}`}>
-                    <Edit className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => deleteProduct(p)} className="text-rose-300 border-rose-500/40" data-testid={`btn-delete-product-${p.id}`}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragProducts}>
+              <SortableContext items={filtered.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                {filtered.map((p) => (
+                  <SortableProductRow key={p.id} p={p} onEdit={() => openProduct(p)} onDelete={() => deleteProduct(p)} />
+                ))}
+              </SortableContext>
+            </DndContext>
             {filtered.length === 0 && (
               <div className="p-8 text-center text-sm text-slate-500 flex flex-col items-center gap-2">
                 <Package className="w-8 h-8 text-violet-400/40" />
@@ -237,7 +267,6 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* Category create dialog */}
       <Dialog open={creatingCat} onOpenChange={(o) => !o && setCreatingCat(false)}>
         <DialogContent className="bg-slate-950 border-violet-500/30 max-w-md">
           <DialogTitle className="font-display text-xl font-black">
@@ -250,7 +279,6 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Product form dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-w-2xl bg-slate-950 border-violet-500/30">
           <DialogTitle className="font-display text-xl font-black">
@@ -267,7 +295,17 @@ export default function ProductsPage() {
             <Field label="TVA %"><input type="number" step="0.1" value={pForm.vat_rate} onChange={(e) => setPForm({ ...pForm, vat_rate: e.target.value })} className="input-dark" data-testid="pf-vat" /></Field>
             <Field label="Stock"><input type="number" value={pForm.stock} onChange={(e) => setPForm({ ...pForm, stock: e.target.value })} className="input-dark" data-testid="pf-stock" /></Field>
             <Field label="Seuil alerte"><input type="number" value={pForm.stock_alert} onChange={(e) => setPForm({ ...pForm, stock_alert: e.target.value })} className="input-dark" data-testid="pf-alert" /></Field>
-            <Field label="Image URL" wide><input value={pForm.image_url || ""} onChange={(e) => setPForm({ ...pForm, image_url: e.target.value })} className="input-dark" data-testid="pf-image" /></Field>
+            <Field label="Image URL" wide>
+              <div className="flex gap-2">
+                <input value={pForm.image_url || ""} onChange={(e) => setPForm({ ...pForm, image_url: e.target.value })} className="input-dark flex-1" data-testid="pf-image" />
+                <Button type="button" variant="outline" onClick={lookupImage} disabled={imgLookup || !pForm.ean} data-testid="btn-lookup-image">
+                  <ImageIcon className="w-4 h-4 mr-1" /> {imgLookup ? "…" : "EAN"}
+                </Button>
+              </div>
+              {pForm.image_url && (
+                <img src={pForm.image_url} alt="preview" className="mt-2 h-16 w-16 rounded object-cover border border-violet-500/20" />
+              )}
+            </Field>
             <label className="col-span-2 flex items-center gap-2 text-sm">
               <input type="checkbox" checked={!!pForm.is_favorite} onChange={(e) => setPForm({ ...pForm, is_favorite: e.target.checked })} data-testid="pf-favorite" />
               Favori (raccourci en caisse)
@@ -281,8 +319,82 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Import CSV modal */}
       {importing && <ImportCSV onClose={() => setImporting(false)} onDone={loadView} />}
+    </div>
+  );
+}
+
+function SortableCategoryTile({ cat, onOpen, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cat.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="group text-left rounded-2xl p-4 bg-slate-900/70 border border-violet-500/15 hover:border-fuchsia-500/50 transition relative"
+      data-testid={`cat-tile-${cat.id}`}
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="absolute top-2 left-2 text-slate-500 hover:text-fuchsia-300 cursor-grab active:cursor-grabbing p-1"
+        data-testid={`cat-drag-${cat.id}`}
+        aria-label="Réordonner"
+      >
+        <GripVertical className="w-4 h-4" />
+      </button>
+      <button onClick={onOpen} className="w-full text-left">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center mb-2 ml-6"
+          style={{ background: cat.color ? `linear-gradient(135deg, ${cat.color}, #EC4899)` : "linear-gradient(135deg,#8B5CF6,#EC4899)" }}
+        >
+          <Layers className="w-5 h-5 text-white" />
+        </div>
+        <div className="font-display font-bold text-lg leading-tight">{cat.name}</div>
+        <div className="text-[11px] text-slate-400 mt-1">{cat.product_count} produit(s)</div>
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        className="absolute top-2 right-2 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition"
+        data-testid={`btn-del-cat-${cat.id}`}
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function SortableProductRow({ p, onEdit, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: p.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 };
+  return (
+    <div ref={setNodeRef} style={style} className="grid grid-cols-12 px-4 py-2 items-center border-b border-violet-500/10 text-sm hover:bg-slate-950/40" data-testid={`row-product-${p.id}`}>
+      <div className="col-span-1">
+        <button
+          {...attributes}
+          {...listeners}
+          className="text-slate-500 hover:text-fuchsia-300 cursor-grab active:cursor-grabbing p-1"
+          data-testid={`row-drag-${p.id}`}
+          aria-label="Réordonner"
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="col-span-4 flex items-center gap-2">
+        {p.image_url && <img src={p.image_url} alt="" className="w-8 h-8 rounded object-cover" />}
+        {p.is_favorite && <Star className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />}
+        <div>
+          <div className="font-semibold">{p.name}</div>
+          <div className="text-xs text-slate-500">{p.variant} · {p.ean || p.sku || "—"}</div>
+        </div>
+      </div>
+      <div className="col-span-2 text-slate-300">{p.brand}</div>
+      <div className="col-span-2 font-mono-num text-pink-300">{fmt(p.price)}</div>
+      <div className={`col-span-1 font-mono-num ${p.stock <= p.stock_alert ? "text-rose-300" : "text-slate-200"}`}>{p.stock}</div>
+      <div className="col-span-2 flex justify-end gap-1">
+        <Button size="sm" variant="outline" onClick={onEdit} data-testid={`btn-edit-product-${p.id}`}><Edit className="w-3.5 h-3.5" /></Button>
+        <Button size="sm" variant="outline" onClick={onDelete} className="text-rose-300 border-rose-500/40" data-testid={`btn-delete-product-${p.id}`}><Trash2 className="w-3.5 h-3.5" /></Button>
+      </div>
     </div>
   );
 }
@@ -300,6 +412,8 @@ function ImportCSV({ onClose, onDone }) {
   const [raw, setRaw] = useState("");
   const [rows, setRows] = useState([]);
   const [upsertBy, setUpsertBy] = useState("ean");
+  const [applyAll, setApplyAll] = useState(false);
+  const [autoImages, setAutoImages] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -312,7 +426,6 @@ Sub Zero 10ml,Halo,E-liquides/10ml,,3760001000028,5.90,3.20,20,60,5,6mg,,true`;
     if (lines.length < 2) return [];
     const headers = lines[0].split(",").map((h) => h.trim());
     return lines.slice(1).map((line) => {
-      // simple CSV parser (no quoted commas support beyond basics)
       const cells = [];
       let cur = ""; let inQ = false;
       for (const ch of line) {
@@ -323,7 +436,6 @@ Sub Zero 10ml,Halo,E-liquides/10ml,,3760001000028,5.90,3.20,20,60,5,6mg,,true`;
       cells.push(cur);
       const row = {};
       headers.forEach((h, i) => { row[h] = (cells[i] ?? "").trim(); });
-      // coerce
       ["price", "cost_price", "vat_rate", "stock", "stock_alert"].forEach((k) => {
         if (row[k] !== undefined && row[k] !== "") row[k] = parseFloat(String(row[k]).replace(",", "."));
         else delete row[k];
@@ -343,10 +455,12 @@ Sub Zero 10ml,Halo,E-liquides/10ml,,3760001000028,5.90,3.20,20,60,5,6mg,,true`;
   const submit = async () => {
     setBusy(true);
     try {
-      const { data } = await api.post("/products/import", { rows, upsert_by: upsertBy });
+      const { data } = await api.post("/products/import", {
+        rows, upsert_by: upsertBy, apply_to_all_stores: applyAll, auto_fetch_images: autoImages,
+      });
       setResult(data);
       onDone?.();
-      toast.success(`Import : ${data.created} créés, ${data.updated} mis à jour`);
+      toast.success(`Import : ${data.created} créés, ${data.updated} mis à jour${data.stores > 1 ? ` (×${data.stores} magasins)` : ""}`);
     } catch (e) { toast.error(formatApiError(e)); } finally { setBusy(false); }
   };
 
@@ -354,8 +468,7 @@ Sub Zero 10ml,Halo,E-liquides/10ml,,3760001000028,5.90,3.20,20,60,5,6mg,,true`;
     const blob = new Blob([template], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "vapepos_import_template.csv";
-    a.click();
+    a.download = "vapepos_import_template.csv"; a.click();
   };
 
   return (
@@ -368,7 +481,7 @@ Sub Zero 10ml,Halo,E-liquides/10ml,,3760001000028,5.90,3.20,20,60,5,6mg,,true`;
         {!result ? (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <div className="text-slate-400">
+              <div className="text-slate-400 text-xs">
                 Colonnes : <code className="text-pink-300">name, brand, category_path, sku, ean, price, cost_price, vat_rate, stock, stock_alert, variant, image_url, is_favorite</code>
               </div>
               <Button size="sm" variant="outline" onClick={downloadTemplate} data-testid="btn-download-template">
@@ -396,6 +509,22 @@ Sub Zero 10ml,Halo,E-liquides/10ml,,3760001000028,5.90,3.20,20,60,5,6mg,,true`;
               className="w-full h-40 rounded-lg bg-slate-900 border border-violet-500/20 p-3 font-mono-num text-xs text-slate-100"
               data-testid="import-paste"
             />
+            <div className="flex flex-col sm:flex-row gap-2 text-sm">
+              <label className="flex items-center gap-2 flex-1 p-2 rounded-lg bg-slate-900/60 border border-violet-500/15 cursor-pointer">
+                <input type="checkbox" checked={applyAll} onChange={(e) => setApplyAll(e.target.checked)} data-testid="import-apply-all" />
+                <span>
+                  <span className="font-semibold">Appliquer aux 2 magasins</span>
+                  <span className="block text-[11px] text-slate-500">Pouzauges + Chantonnay simultanément</span>
+                </span>
+              </label>
+              <label className="flex items-center gap-2 flex-1 p-2 rounded-lg bg-slate-900/60 border border-violet-500/15 cursor-pointer">
+                <input type="checkbox" checked={autoImages} onChange={(e) => setAutoImages(e.target.checked)} data-testid="import-auto-images" />
+                <span>
+                  <span className="font-semibold">Récupérer les images auto</span>
+                  <span className="block text-[11px] text-slate-500">via EAN (Open Food Facts) — plus lent</span>
+                </span>
+              </label>
+            </div>
             <div className="text-sm text-slate-300">
               {rows.length > 0 ? (
                 <>
@@ -428,17 +557,17 @@ Sub Zero 10ml,Halo,E-liquides/10ml,,3760001000028,5.90,3.20,20,60,5,6mg,,true`;
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={onClose}>Annuler</Button>
               <Button disabled={busy || rows.length === 0} onClick={submit} className="bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold" data-testid="btn-import-submit">
-                Importer {rows.length} produit(s)
+                {busy ? "Import…" : `Importer ${rows.length} produit(s)`}
               </Button>
             </div>
             <div className="text-[10px] text-amber-300/80">
-              L'import applique au magasin en cours. Les sous-catégories manquantes sont créées automatiquement à partir de <code>category_path</code> (ex : "E-liquides/50ml").
+              Les sous-catégories manquantes sont créées automatiquement à partir de <code>category_path</code>.
             </div>
           </div>
         ) : (
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-3 gap-2">
-              <Stat label="Créés" value={result.created} tint="from-emerald-500 to-teal-500" />
+              <Stat label={`Créés${result.stores > 1 ? ` (×${result.stores})` : ""}`} value={result.created} tint="from-emerald-500 to-teal-500" />
               <Stat label="Mis à jour" value={result.updated} tint="from-violet-500 to-fuchsia-500" />
               <Stat label="Erreurs" value={result.errors.length} tint="from-rose-500 to-orange-500" />
             </div>

@@ -190,6 +190,14 @@ class ProductImportRow(BaseModel):
 class ProductImportIn(BaseModel):
     rows: List[ProductImportRow]
     upsert_by: Literal["ean", "sku", "name"] = "ean"
+    apply_to_all_stores: bool = False
+    auto_fetch_images: bool = False
+
+
+class ReorderItem(BaseModel):
+    id: str
+    sort_order: int
+    parent_id: Optional[str] = None  # categories only; "root" to move to root, None to leave unchanged
 
 
 class Product(BaseModel):
@@ -207,6 +215,7 @@ class Product(BaseModel):
     image_url: Optional[str] = None
     is_favorite: bool = False
     variant: Optional[str] = None  # e.g. nicotine level, flavor
+    sort_order: int = 0
     active: bool = True
 
 
@@ -224,6 +233,7 @@ class ProductIn(BaseModel):
     image_url: Optional[str] = None
     is_favorite: bool = False
     variant: Optional[str] = None
+    sort_order: int = 0
 
 
 class Customer(BaseModel):
@@ -665,6 +675,18 @@ async def create_category(body: CategoryIn, actor: dict = Depends(require_role("
     return doc
 
 
+@api.post("/categories/reorder")
+async def reorder_categories(items: List[ReorderItem], actor: dict = Depends(require_role("admin", "manager"))):
+    for it in items:
+        update = {"sort_order": it.sort_order}
+        if it.parent_id == "root":
+            update["parent_id"] = None
+        elif it.parent_id is not None:
+            update["parent_id"] = it.parent_id
+        await db.categories.update_one({"id": it.id}, {"$set": update})
+    return {"ok": True, "updated": len(items)}
+
+
 @api.put("/categories/{cid}")
 async def update_category(cid: str, body: CategoryIn, actor: dict = Depends(require_role("admin", "manager"))):
     if body.parent_id == cid:
@@ -713,7 +735,7 @@ async def list_products(
     if q:
         rx = {"$regex": q, "$options": "i"}
         query["$or"] = [{"name": rx}, {"brand": rx}, {"sku": rx}, {"ean": rx}, {"variant": rx}]
-    return await db.products.find(query, {"_id": 0}).limit(limit).to_list(limit)
+    return await db.products.find(query, {"_id": 0}).sort([("sort_order", 1), ("name", 1)]).limit(limit).to_list(limit)
 
 
 @api.get("/products/lookup")
@@ -760,9 +782,14 @@ async def delete_product(pid: str, actor: dict = Depends(require_role("admin")))
 
 @api.post("/products/import")
 async def import_products(body: ProductImportIn, actor: dict = Depends(require_role("admin", "manager"))):
-    if not actor.get("store_id"):
+    if not actor.get("store_id") and not body.apply_to_all_stores:
         raise HTTPException(400, "Sélectionnez d'abord un magasin")
-    store_id = actor["store_id"]
+
+    # Which stores to import into
+    if body.apply_to_all_stores:
+        target_stores = [s["id"] for s in await db.stores.find({}, {"_id": 0, "id": 1}).to_list(50)]
+    else:
+        target_stores = [actor["store_id"]]
 
     async def resolve_category_path(path: Optional[str]) -> Optional[str]:
         if not path:
@@ -781,44 +808,139 @@ async def import_products(body: ProductImportIn, actor: dict = Depends(require_r
                 parent = cid
         return parent
 
+    async def fetch_ean_image(ean: str) -> Optional[str]:
+        try:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=4) as c:
+                r = await c.get(f"https://world.openfoodfacts.org/api/v2/product/{ean}.json")
+                if r.status_code == 200:
+                    d = r.json()
+                    if d.get("status") == 1:
+                        p = d.get("product", {})
+                        return p.get("image_front_url") or p.get("image_url")
+        except Exception:
+            return None
+        return None
+
     created = 0
     updated = 0
     errors: List[dict] = []
     for i, row in enumerate(body.rows):
         try:
             cat_id = await resolve_category_path(row.category_path)
-            match: Optional[dict] = {"store_id": store_id, "active": True}
-            key = body.upsert_by
-            if key == "ean" and row.ean:
-                match["ean"] = row.ean
-            elif key == "sku" and row.sku:
-                match["sku"] = row.sku
-            elif key == "name":
-                match["name"] = row.name
-            else:
-                match = None
-            payload = {
-                "name": row.name, "brand": row.brand, "category_id": cat_id,
-                "sku": row.sku, "ean": row.ean,
-                "price": float(row.price), "cost_price": float(row.cost_price or 0),
-                "vat_rate": float(row.vat_rate), "stock": int(row.stock),
-                "stock_alert": int(row.stock_alert), "variant": row.variant,
-                "image_url": row.image_url, "is_favorite": bool(row.is_favorite),
-                "active": True, "store_id": store_id,
-            }
-            existing = await db.products.find_one(match) if match else None
-            if existing:
-                await db.products.update_one({"id": existing["id"]}, {"$set": payload})
-                updated += 1
-            else:
-                payload["id"] = new_id()
-                payload["created_at"] = now_iso()
-                await db.products.insert_one(payload)
-                created += 1
+            img = row.image_url
+            if body.auto_fetch_images and not img and row.ean:
+                img = await fetch_ean_image(row.ean)
+
+            for sid in target_stores:
+                match: Optional[dict] = {"store_id": sid, "active": True}
+                key = body.upsert_by
+                if key == "ean" and row.ean:
+                    match["ean"] = row.ean
+                elif key == "sku" and row.sku:
+                    match["sku"] = row.sku
+                elif key == "name":
+                    match["name"] = row.name
+                else:
+                    match = None
+
+                payload = {
+                    "name": row.name, "brand": row.brand, "category_id": cat_id,
+                    "sku": row.sku, "ean": row.ean,
+                    "price": float(row.price), "cost_price": float(row.cost_price or 0),
+                    "vat_rate": float(row.vat_rate), "stock": int(row.stock),
+                    "stock_alert": int(row.stock_alert), "variant": row.variant,
+                    "image_url": img, "is_favorite": bool(row.is_favorite),
+                    "active": True, "store_id": sid,
+                }
+                existing = await db.products.find_one(match) if match else None
+                if existing:
+                    await db.products.update_one({"id": existing["id"]}, {"$set": payload})
+                    updated += 1
+                else:
+                    payload["id"] = new_id()
+                    payload["created_at"] = now_iso()
+                    await db.products.insert_one(payload)
+                    created += 1
         except Exception as e:
             errors.append({"row": i, "name": row.name, "error": str(e)})
-    await audit(actor, "product.import", "products", None, {"created": created, "updated": updated, "errors": len(errors)})
-    return {"created": created, "updated": updated, "errors": errors, "total": len(body.rows)}
+    await audit(actor, "product.import", "products", None, {
+        "created": created, "updated": updated, "errors": len(errors),
+        "stores": len(target_stores), "auto_img": body.auto_fetch_images,
+    })
+    return {
+        "created": created, "updated": updated, "errors": errors,
+        "total": len(body.rows), "stores": len(target_stores),
+    }
+
+
+@api.post("/products/reorder")
+async def reorder_products(items: List[ReorderItem], actor: dict = Depends(require_role("admin", "manager"))):
+    for it in items:
+        await db.products.update_one({"id": it.id}, {"$set": {"sort_order": it.sort_order}})
+    return {"ok": True, "updated": len(items)}
+
+
+@api.get("/products/lookup-image")
+async def lookup_image(ean: str, user: dict = Depends(current_user)):
+    """Best-effort image fetch from Open Food Facts by EAN."""
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(f"https://world.openfoodfacts.org/api/v2/product/{ean}.json")
+            if r.status_code == 200:
+                d = r.json()
+                if d.get("status") == 1:
+                    p = d.get("product", {})
+                    img = p.get("image_front_url") or p.get("image_url")
+                    return {"image_url": img, "name": p.get("product_name"), "source": "openfoodfacts"}
+    except Exception as e:
+        return {"image_url": None, "error": str(e), "source": None}
+    return {"image_url": None, "source": None}
+
+
+@api.get("/products/export.csv")
+async def export_products_csv(
+    store_id: Optional[str] = None,
+    user: dict = Depends(require_role("admin", "manager")),
+):
+    from fastapi.responses import Response as FResponse
+    sid = store_id or user.get("store_id")
+    q: dict = {"active": True}
+    if sid and sid != "all":
+        q["store_id"] = sid
+    prods = await db.products.find(q, {"_id": 0}).sort([("category_id", 1), ("sort_order", 1), ("name", 1)]).to_list(20000)
+    cats = {c["id"]: c for c in await db.categories.find({}, {"_id": 0}).to_list(1000)}
+
+    def path(cid):
+        parts = []
+        seen = set()
+        while cid and cid in cats and cid not in seen:
+            seen.add(cid)
+            parts.insert(0, cats[cid]["name"])
+            cid = cats[cid].get("parent_id")
+        return "/".join(parts)
+
+    def esc(v):
+        s = "" if v is None else str(v)
+        if "," in s or '"' in s or "\n" in s:
+            s = '"' + s.replace('"', '""') + '"'
+        return s
+
+    header = "name,brand,category_path,sku,ean,price,cost_price,vat_rate,stock,stock_alert,variant,image_url,is_favorite"
+    lines = [header]
+    for p in prods:
+        lines.append(",".join(esc(x) for x in [
+            p.get("name", ""), p.get("brand", ""), path(p.get("category_id")),
+            p.get("sku", ""), p.get("ean", ""), p.get("price", 0), p.get("cost_price", 0),
+            p.get("vat_rate", 20), p.get("stock", 0), p.get("stock_alert", 5),
+            p.get("variant", ""), p.get("image_url", ""), "true" if p.get("is_favorite") else "false",
+        ]))
+    return FResponse(
+        content="\n".join(lines),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="catalog_{sid or "all"}.csv"'}
+    )
 
 
 # --- Customers -----------------------------------------------------------

@@ -38,7 +38,11 @@ users · stores · categories · products · customers · sales · cash_sessions
 
 ## Implémenté (25 Feb 2026)
 - **Catalogue produits hiérarchique** : catégories arborescentes (parent/enfant illimité), navigation par tuiles + breadcrumb, création de sous-catégories et de produits contextuelle, suppression sécurisée (bloquée si enfants ou produits actifs)
-- **Import CSV en masse** : collage direct ou upload fichier, aperçu 8 lignes, upsert par EAN/SKU/Nom, création automatique des sous-catégories manquantes via `category_path` (ex "E-liquides/50ml"), rapport créés/mis-à-jour/erreurs, modèle CSV téléchargeable
+- **Drag & drop réorganisation** (@dnd-kit) : glisse-dépose des tuiles catégories et des lignes produits avec poignée dédiée ; ordre persisté serveur via `/categories/reorder` et `/products/reorder`
+- **Import CSV en masse** : collage direct ou upload fichier, aperçu 8 lignes, upsert par EAN/SKU/Nom, création automatique des sous-catégories manquantes via `category_path`, rapport créés/mis-à-jour/erreurs, modèle CSV téléchargeable
+- **Import multi-magasin** : case "Appliquer aux 2 magasins" pour propager Pouzauges + Chantonnay en un import
+- **Récupération d'images automatique** : depuis l'EAN via Open Food Facts (bouton EAN dans le formulaire produit + option d'auto-fetch pendant un import CSV)
+- **Export CSV du catalogue** : télécharge le catalogue complet du magasin dans le même format que l'import (round-trip Excel possible)
 - **PWA installable** : manifest, service worker, icônes 192/256/384/512 + apple-touch-icon 180, splash iPad landscape 3 tailles + Android 1920×1080, meta iOS, thème #0F0B1E
 - **Mode kiosque** (actif automatiquement en display=standalone) : trap back-button, blocage context menu + zoom double-tap, fullscreen au 1er tap, Wake Lock pour empêcher la mise en veille
 - **Bannière d'installation** discrète (chip violet) + dialog iPad "Partager → Sur l'écran d'accueil"

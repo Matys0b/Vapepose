@@ -21,19 +21,24 @@ export default function Accounting() {
   const [summary, setSummary] = useState(null);
   const [series, setSeries] = useState([]);
   const [period, setPeriod] = useState("day");
+  const [storeId, setStoreId] = useState("all");
+  const [stores, setStores] = useState([]);
+
+  useEffect(() => { api.get("/stores").then((r) => setStores(r.data)).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
+    const params = { date_from: from, date_to: to, store_id: storeId };
     const [s, t] = await Promise.all([
-      api.get("/accounting/summary", { params: { date_from: from, date_to: to } }),
-      api.get("/accounting/timeseries", { params: { date_from: from, date_to: to, period } }),
+      api.get("/accounting/summary", { params }),
+      api.get("/accounting/timeseries", { params: { ...params, period } }),
     ]);
     setSummary(s.data); setSeries(t.data);
-  }, [from, to, period]);
+  }, [from, to, period, storeId]);
   useEffect(() => { load(); }, [load]);
 
   const exportCsv = () => {
     const t = localStorage.getItem("vapepos_token");
-    const url = `${API}/accounting/export.csv?date_from=${from}&date_to=${to}`;
+    const url = `${API}/accounting/export.csv?date_from=${from}&date_to=${to}&store_id=${storeId}`;
     fetch(url, { credentials: "include", headers: t ? { Authorization: `Bearer ${t}` } : {} })
       .then((r) => r.blob())
       .then((b) => {
@@ -53,7 +58,14 @@ export default function Accounting() {
           <h1 className="font-display text-3xl font-black">Comptabilité</h1>
           <p className="text-sm text-slate-400">CA, TVA, dépenses, moyens de paiement — {summary.range.from} → {summary.range.to}</p>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 flex-wrap">
+          <label className="text-xs uppercase tracking-widest text-slate-400">
+            Magasin
+            <select value={storeId} onChange={(e) => setStoreId(e.target.value)} className="block h-10 rounded-lg bg-slate-900 border border-violet-500/20 px-2 mt-1 text-slate-100" data-testid="acc-store">
+              <option value="all">Tous les magasins</option>
+              {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
           <label className="text-xs uppercase tracking-widest text-slate-400">
             Du
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="block h-10 rounded-lg bg-slate-900 border border-violet-500/20 px-2 mt-1 text-slate-100" data-testid="acc-from" />

@@ -323,6 +323,8 @@ async def ensure_indexes():
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id", unique=True)
     await db.products.create_index("id", unique=True)
+    await db.products.create_index([("store_id", 1), ("ean", 1)])
+    await db.products.create_index([("store_id", 1), ("sku", 1)])
     await db.products.create_index("ean")
     await db.products.create_index("sku")
     await db.customers.create_index("id", unique=True)
@@ -349,10 +351,9 @@ async def seed():
     admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
     admin_name = os.environ.get("ADMIN_NAME", "Owner")
     seed_users = [
-        {"email": admin_email, "name": admin_name, "role": "admin", "password": admin_pw, "pin": "9999"},
-        {"email": "manager@vapepos.local", "name": "Manager", "role": "manager", "password": "Manager2026!", "pin": "2580"},
-        {"email": "vendeur@vapepos.local", "name": "Thomas V.", "role": "cashier", "password": "Vendeur2026!", "pin": "1234"},
-        {"email": "vendeur2@vapepos.local", "name": "Lucie B.", "role": "cashier", "password": "Vendeur2026!", "pin": "4321"},
+        {"email": "mathis@vapepos.local", "name": "Mathis", "role": "admin", "password": "vapepos", "pin": "1111", "color": "#8B5CF6"},
+        {"email": "emma@vapepos.local", "name": "Emma", "role": "admin", "password": "vapepos", "pin": "2222", "color": "#EC4899"},
+        {"email": "jessica@vapepos.local", "name": "Jessica", "role": "admin", "password": "vapepos", "pin": "3333", "color": "#06B6D4"},
     ]
     for u in seed_users:
         existing = await db.users.find_one({"email": u["email"]})
@@ -361,7 +362,8 @@ async def seed():
             "email": u["email"].lower(),
             "name": u["name"],
             "role": u["role"],
-            "store_id": default_store,
+            "store_id": None,  # user picks at login
+            "color": u.get("color"),
             "password_hash": hash_password(u["password"]),
             "pin_hash": hash_password(u["pin"]) if u.get("pin") else None,
             "created_at": now_iso(),
@@ -369,7 +371,6 @@ async def seed():
         if not existing:
             await db.users.insert_one(doc)
         else:
-            # keep id, refresh password + pin so env-driven credentials stay valid
             await db.users.update_one(
                 {"email": u["email"].lower()},
                 {"$set": {
@@ -377,6 +378,7 @@ async def seed():
                     "pin_hash": doc["pin_hash"],
                     "name": u["name"],
                     "role": u["role"],
+                    "color": u.get("color"),
                 }},
             )
 
@@ -391,28 +393,32 @@ async def seed():
             await db.categories.insert_one({"id": cid, "name": name, "color": color, "icon": icon, "sort_order": order})
             cat_map[name] = cid
 
-    # Products
+    # Products — duplicated per store so each shop has its own stock
     if await db.products.count_documents({}) == 0:
         docs = []
-        for (name, brand, cat_name, price, ean, stock, variant, fav, image) in SEED_PRODUCTS_TEMPLATE:
-            docs.append({
-                "id": new_id(),
-                "name": name,
-                "brand": brand,
-                "category_id": cat_map.get(cat_name),
-                "sku": ean,
-                "ean": ean,
-                "price": price,
-                "cost_price": round(price * 0.55, 2),
-                "vat_rate": 20.0,
-                "stock": stock,
-                "stock_alert": 5,
-                "image_url": image,
-                "is_favorite": fav,
-                "variant": variant,
-                "active": True,
-                "created_at": now_iso(),
-            })
+        for st in stores:
+            # slight stock variance between shops for realism
+            variance = 1.0 if st["code"] == "POU" else 0.8
+            for (name, brand, cat_name, price, ean, stock, variant, fav, image) in SEED_PRODUCTS_TEMPLATE:
+                docs.append({
+                    "id": new_id(),
+                    "name": name,
+                    "brand": brand,
+                    "category_id": cat_map.get(cat_name),
+                    "sku": ean,
+                    "ean": ean,
+                    "price": price,
+                    "cost_price": round(price * 0.55, 2),
+                    "vat_rate": 20.0,
+                    "stock": max(0, int(stock * variance)),
+                    "stock_alert": 5,
+                    "image_url": image,
+                    "is_favorite": fav,
+                    "variant": variant,
+                    "active": True,
+                    "store_id": st["id"],
+                    "created_at": now_iso(),
+                })
         await db.products.insert_many(docs)
 
     # Customers
@@ -429,9 +435,23 @@ async def seed():
         await db.app_settings.insert_one({"key": "loyalty", "euro_per_point": 1.0, "point_value_euro": 0.05})
 
 
+async def bootstrap_reset():
+    """One-time destructive reset to switch to the 3-account per-store schema."""
+    flag = await db.app_settings.find_one({"key": "bootstrap_reset_v3"})
+    if flag:
+        return
+    for coll in ("users", "products", "sales", "stock_movements", "cash_sessions",
+                 "suspended_carts", "expenses", "audit_logs", "counters",
+                 "loyalty_transactions"):
+        await db[coll].delete_many({})
+    await db.app_settings.insert_one({"key": "bootstrap_reset_v3", "at": now_iso()})
+    log.info("Bootstrap reset v3 executed (3 users + per-store stock)")
+
+
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
+    await bootstrap_reset()
     await seed()
     log.info("VapePOS backend started")
 
@@ -472,6 +492,19 @@ async def pin_login(body: PinLoginIn, response: Response):
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
+
+
+@api.get("/auth/accounts")
+async def list_accounts():
+    """Public list of user accounts for the tablet login picker (no auth)."""
+    users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "role": 1, "color": 1}).to_list(20)
+    return users
+
+
+@api.get("/stores/public")
+async def stores_public():
+    """Public store list for the login store-picker."""
+    return await db.stores.find({}, {"_id": 0}).to_list(50)
 
 
 @api.get("/auth/me")
@@ -531,10 +564,17 @@ async def list_products(
     q: Optional[str] = None,
     category_id: Optional[str] = None,
     favorite: Optional[bool] = None,
+    store_id: Optional[str] = None,  # 'all' to bypass, else specific id, else user's store
     limit: int = 500,
     user: dict = Depends(current_user),
 ):
     query: dict = {"active": True}
+    if store_id == "all":
+        pass
+    elif store_id:
+        query["store_id"] = store_id
+    elif user.get("store_id"):
+        query["store_id"] = user["store_id"]
     if category_id:
         query["category_id"] = category_id
     if favorite is not None:
@@ -547,9 +587,12 @@ async def list_products(
 
 @api.get("/products/lookup")
 async def lookup_product(code: str, user: dict = Depends(current_user)):
-    p = await db.products.find_one({"$or": [{"ean": code}, {"sku": code}]}, {"_id": 0})
+    q = {"$or": [{"ean": code}, {"sku": code}]}
+    if user.get("store_id"):
+        q["store_id"] = user["store_id"]
+    p = await db.products.find_one(q, {"_id": 0})
     if not p:
-        raise HTTPException(404, "Produit introuvable")
+        raise HTTPException(404, "Produit introuvable dans ce magasin")
     return p
 
 
@@ -892,18 +935,35 @@ async def create_supplier(body: SupplierIn, actor: dict = Depends(require_role("
 
 # --- Dashboard -----------------------------------------------------------
 @api.get("/dashboard/stats")
-async def dashboard_stats(user: dict = Depends(require_role("admin", "manager"))):
+async def dashboard_stats(
+    store_id: Optional[str] = None,
+    user: dict = Depends(require_role("admin", "manager")),
+):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    day_sales = await db.sales.find({"created_at": {"$gte": today}, "status": "completed"}, {"_id": 0}).to_list(2000)
+    sq: dict = {"created_at": {"$gte": today}, "status": "completed"}
+    pq: dict = {"active": True, "$expr": {"$lte": ["$stock", "$stock_alert"]}}
+    rq: dict = {"status": "completed"}
+    if store_id == "all":
+        pass
+    elif store_id:
+        sq["store_id"] = store_id
+        pq["store_id"] = store_id
+        rq["store_id"] = store_id
+    elif user.get("store_id"):
+        sq["store_id"] = user["store_id"]
+        pq["store_id"] = user["store_id"]
+        rq["store_id"] = user["store_id"]
+
+    day_sales = await db.sales.find(sq, {"_id": 0}).to_list(2000)
     total_ca = round(sum(s["total"] for s in day_sales), 2)
     count = len(day_sales)
     avg = round(total_ca / count, 2) if count else 0.0
 
-    low_stock = await db.products.find({"active": True, "$expr": {"$lte": ["$stock", "$stock_alert"]}}, {"_id": 0}).limit(20).to_list(20)
+    low_stock = await db.products.find(pq, {"_id": 0}).limit(20).to_list(20)
     total_customers = await db.customers.count_documents({})
 
     # Top products (last 30 sales)
-    recent = await db.sales.find({"status": "completed"}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    recent = await db.sales.find(rq, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     counter: dict = {}
     for s in recent:
         for it in s["items"]:
@@ -1006,13 +1066,14 @@ def _iso_range(date_from: Optional[str], date_to: Optional[str]):
 async def accounting_summary(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    store_id: Optional[str] = None,  # 'all' or None => all stores; else filter
     user: dict = Depends(require_role("admin", "manager")),
 ):
     df, dt = _iso_range(date_from, date_to)
-    sales = await db.sales.find(
-        {"status": "completed", "created_at": {"$gte": df, "$lte": dt}},
-        {"_id": 0},
-    ).to_list(20000)
+    q: dict = {"status": "completed", "created_at": {"$gte": df, "$lte": dt}}
+    if store_id and store_id != "all":
+        q["store_id"] = store_id
+    sales = await db.sales.find(q, {"_id": 0}).to_list(20000)
 
     total_ttc = 0.0
     total_ht = 0.0
@@ -1089,13 +1150,14 @@ async def accounting_timeseries(
     period: Literal["day", "week", "month"] = "day",
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    store_id: Optional[str] = None,
     user: dict = Depends(require_role("admin", "manager")),
 ):
     df, dt = _iso_range(date_from, date_to)
-    sales = await db.sales.find(
-        {"status": "completed", "created_at": {"$gte": df, "$lte": dt}},
-        {"_id": 0},
-    ).to_list(20000)
+    q: dict = {"status": "completed", "created_at": {"$gte": df, "$lte": dt}}
+    if store_id and store_id != "all":
+        q["store_id"] = store_id
+    sales = await db.sales.find(q, {"_id": 0}).to_list(20000)
     buckets: dict = {}
     for s in sales:
         d = s["created_at"][:10]
@@ -1119,20 +1181,23 @@ async def accounting_timeseries(
 async def accounting_export(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    store_id: Optional[str] = None,
     user: dict = Depends(require_role("admin", "manager")),
 ):
     from fastapi.responses import Response as FResponse
     df, dt = _iso_range(date_from, date_to)
-    sales = await db.sales.find(
-        {"status": "completed", "created_at": {"$gte": df, "$lte": dt}},
-        {"_id": 0},
-    ).sort("created_at", 1).to_list(20000)
-    lines = ["numero;date;vendeur;total_ttc;total_ht;tva;moyens_paiement;nb_articles"]
+    q: dict = {"status": "completed", "created_at": {"$gte": df, "$lte": dt}}
+    if store_id and store_id != "all":
+        q["store_id"] = store_id
+    sales = await db.sales.find(q, {"_id": 0}).sort("created_at", 1).to_list(20000)
+    stores = {s["id"]: s["name"] for s in await db.stores.find({}, {"_id": 0}).to_list(50)}
+    lines = ["numero;date;magasin;vendeur;total_ttc;total_ht;tva;moyens_paiement;nb_articles"]
     for s in sales:
         methods = "|".join(f"{p['method']}:{p['amount']}" for p in s["payments"])
         nb = sum(i["quantity"] for i in s["items"])
+        shop = stores.get(s.get("store_id"), "")
         lines.append(
-            f"{s['number']};{s['created_at']};{s.get('user_name','')};{s['total']};"
+            f"{s['number']};{s['created_at']};{shop};{s.get('user_name','')};{s['total']};"
             f"{round(s['total'] - s.get('vat_total',0),2)};{s.get('vat_total',0)};{methods};{nb}"
         )
     csv = "\n".join(lines)

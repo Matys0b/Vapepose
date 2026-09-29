@@ -401,15 +401,32 @@ async def ensure_indexes():
     await db.products.create_index("id", unique=True)
     await db.products.create_index([("store_id", 1), ("ean", 1)])
     await db.products.create_index([("store_id", 1), ("sku", 1)])
+    await db.products.create_index([("store_id", 1), ("active", 1), ("category_id", 1), ("sort_order", 1)])
+    await db.products.create_index([("store_id", 1), ("active", 1), ("is_favorite", 1), ("sort_order", 1)])
+    await db.products.create_index([("store_id", 1), ("active", 1), ("name", 1)])
     await db.products.create_index("ean")
     await db.products.create_index("sku")
+    # Text index for fast full-text search on the catalog
+    try:
+        await db.products.create_index(
+            [("name", "text"), ("brand", "text"), ("variant", "text"), ("sku", "text"), ("ean", "text")],
+            name="products_text",
+            default_language="french",
+            weights={"name": 10, "brand": 5, "variant": 3, "sku": 2, "ean": 2},
+        )
+    except Exception:
+        pass
     await db.customers.create_index("id", unique=True)
     await db.customers.create_index("qr_token", unique=True)
     await db.notifications.create_index([("target_type", 1), ("target_id", 1), ("at", -1)])
     await db.notifications.create_index("id", unique=True)
     await db.categories.create_index("id", unique=True)
+    await db.categories.create_index([("parent_id", 1), ("sort_order", 1)])
     await db.sales.create_index("id", unique=True)
     await db.sales.create_index("created_at")
+    await db.sales.create_index([("store_id", 1), ("status", 1), ("created_at", -1)])
+    await db.sales.create_index("customer_id")
+    await db.stock_movements.create_index([("product_id", 1), ("at", -1)])
     await db.cash_sessions.create_index("id", unique=True)
     await db.stores.create_index("id", unique=True)
 
@@ -461,16 +478,18 @@ async def seed():
                 }},
             )
 
-    # Categories
+    # Categories — legacy demo seed. Only runs if the catalog is completely empty,
+    # otherwise the client's imported categories are the source of truth.
     cat_map = {}
-    for name, color, icon, order in VAPE_CATEGORIES:
-        existing = await db.categories.find_one({"name": name, "parent_id": None})
-        if existing:
-            cat_map[name] = existing["id"]
-        else:
-            cid = new_id()
-            await db.categories.insert_one({"id": cid, "name": name, "parent_id": None, "color": color, "icon": icon, "sort_order": order})
-            cat_map[name] = cid
+    if await db.categories.count_documents({}) == 0:
+        for name, color, icon, order in VAPE_CATEGORIES:
+            existing = await db.categories.find_one({"name": name, "parent_id": None})
+            if existing:
+                cat_map[name] = existing["id"]
+            else:
+                cid = new_id()
+                await db.categories.insert_one({"id": cid, "name": name, "parent_id": None, "color": color, "icon": icon, "sort_order": order})
+                cat_map[name] = cid
 
     # Sub-categories (seed a few realistic ones so the tree isn't flat)
     SUB_CATEGORIES = [
@@ -497,11 +516,12 @@ async def seed():
                 await db.categories.insert_one({"id": cid, "name": sub_name, "parent_id": parent_id, "sort_order": order})
                 cat_map[key] = cid
 
-    # Products — duplicated per store so each shop has its own stock
-    if await db.products.count_documents({}) == 0:
+    # Products — duplicated per store so each shop has its own stock.
+    # NOTE: real catalog is loaded via /tmp/import_products.py from the client Excel file.
+    # This demo block only runs when the catalog is fully empty (never on production).
+    if await db.products.count_documents({}) == 0 and False:
         docs = []
         for st in stores:
-            # slight stock variance between shops for realism
             variance = 1.0 if st["code"] == "POU" else 0.8
             for (name, brand, cat_name, price, ean, stock, variant, fav, image) in SEED_PRODUCTS_TEMPLATE:
                 docs.append({
@@ -764,7 +784,37 @@ async def list_products(
     category_id: Optional[str] = None,
     favorite: Optional[bool] = None,
     store_id: Optional[str] = None,  # 'all' to bypass, else specific id, else user's store
-    limit: int = 500,
+    limit: int = 100,
+    offset: int = 0,
+    user: dict = Depends(current_user),
+):
+    query: dict = {"active": True}
+    if store_id == "all":
+        pass
+    elif store_id:
+        query["store_id"] = store_id
+    elif user.get("store_id"):
+        query["store_id"] = user["store_id"]
+    if category_id:
+        query["category_id"] = category_id
+    if favorite is not None:
+        query["is_favorite"] = favorite
+    if q:
+        # Prefix regex on indexed fields — supports partial typing, uses indexes
+        rx = {"$regex": q, "$options": "i"}
+        query["$or"] = [{"name": rx}, {"brand": rx}, {"sku": rx}, {"ean": rx}, {"variant": rx}]
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    cursor = db.products.find(query, {"_id": 0}).sort([("sort_order", 1), ("name", 1)]).skip(offset).limit(limit)
+    return await cursor.to_list(limit)
+
+
+@api.get("/products/count")
+async def count_products(
+    q: Optional[str] = None,
+    category_id: Optional[str] = None,
+    favorite: Optional[bool] = None,
+    store_id: Optional[str] = None,
     user: dict = Depends(current_user),
 ):
     query: dict = {"active": True}
@@ -781,7 +831,8 @@ async def list_products(
     if q:
         rx = {"$regex": q, "$options": "i"}
         query["$or"] = [{"name": rx}, {"brand": rx}, {"sku": rx}, {"ean": rx}, {"variant": rx}]
-    return await db.products.find(query, {"_id": 0}).sort([("sort_order", 1), ("name", 1)]).limit(limit).to_list(limit)
+    total = await db.products.count_documents(query)
+    return {"total": total}
 
 
 @api.get("/products/lookup")

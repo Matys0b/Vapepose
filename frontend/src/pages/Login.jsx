@@ -150,11 +150,11 @@ function LoginInner() {
 
       <div className="relative w-full max-w-5xl">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center">
+          <div className="w-11 h-11 rounded-xl aurora-badge flex items-center justify-center">
             <Zap className="w-6 h-6" />
           </div>
           <div>
-            <div className="font-display text-2xl font-black tracking-tight">Cha Va'Pote</div>
+            <div className="font-display text-2xl font-black tracking-tight gradient-text">Cha Va'Pote</div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-violet-300/70">VapePOS · Fidélité</div>
           </div>
           {(mode === "signup" || mode === "store" || mode === "person" || mode === "confirm-pin") && (
@@ -177,12 +177,12 @@ function LoginInner() {
 
         {/* LOGIN --------------------------------------------------- */}
         {mode === "login" && (
-          <div className="max-w-md mx-auto">
+          <div className="max-w-md mx-auto reveal">
             <div className="text-center mb-5">
-              <h1 className="font-display text-3xl sm:text-4xl font-black tracking-tight">Connexion</h1>
-              <p className="text-slate-400 text-sm mt-1">Entre ton email et ton mot de passe.</p>
+              <h1 className="font-display text-4xl sm:text-5xl font-black tracking-tight"><span className="gradient-text">Connexion</span></h1>
+              <p className="text-slate-400 text-sm mt-2">Entre ton email et ton mot de passe.</p>
             </div>
-            <form onSubmit={submitLogin} className="rounded-2xl p-5 bg-slate-900/70 border border-violet-500/20 space-y-3" data-testid="form-auto-login">
+            <form onSubmit={submitLogin} className="glass-card p-5 space-y-3" data-testid="form-auto-login">
               <Field icon={<Mail className="w-4 h-4" />}>
                 <input required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="cf-input" data-testid="cf-email" autoComplete="email" />
               </Field>
@@ -207,12 +207,12 @@ function LoginInner() {
 
         {/* SIGNUP -------------------------------------------------- */}
         {mode === "signup" && (
-          <div className="max-w-md mx-auto">
+          <div className="max-w-md mx-auto reveal">
             <div className="text-center mb-5">
-              <h1 className="font-display text-3xl sm:text-4xl font-black tracking-tight">Créer un compte</h1>
-              <p className="text-slate-400 text-sm mt-1">Réservé aux personnes majeures — cumule des points à chaque passage.</p>
+              <h1 className="font-display text-4xl sm:text-5xl font-black tracking-tight"><span className="gradient-text">Créer un compte</span></h1>
+              <p className="text-slate-400 text-sm mt-2">Réservé aux personnes majeures — cumule des points à chaque passage.</p>
             </div>
-            <form onSubmit={submitSignup} className="rounded-2xl p-5 bg-slate-900/70 border border-violet-500/20 space-y-3" data-testid="form-signup">
+            <form onSubmit={submitSignup} className="glass-card p-5 space-y-3" data-testid="form-signup">
               <Field icon={<User className="w-4 h-4" />}><input required placeholder="Prénom" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="cf-input" data-testid="cf-first-name" /></Field>
               <Field icon={<User className="w-4 h-4" />}><input placeholder="Nom (optionnel)" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="cf-input" data-testid="cf-last-name" /></Field>
               <Field icon={<Phone className="w-4 h-4" />}><input placeholder="Téléphone (optionnel)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="cf-input" data-testid="cf-phone" /></Field>

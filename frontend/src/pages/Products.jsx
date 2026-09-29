@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { api, API, formatApiError } from "../lib/api";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -29,7 +30,11 @@ export default function ProductsPage() {
   const [currentId, setCurrentId] = useState(null);
   const [view, setView] = useState({ category: null, breadcrumb: [], children: [], product_count: 0 });
   const [products, setProducts] = useState([]);
+  const [productTotal, setProductTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 100;
   const [q, setQ] = useState("");
+  const dq = useDebouncedValue(q, 300);
   const [editing, setEditing] = useState(null);
   const [pForm, setPForm] = useState(emptyProduct);
   const [creatingCat, setCreatingCat] = useState(false);
@@ -38,7 +43,7 @@ export default function ProductsPage() {
   const [imgLookup, setImgLookup] = useState(false);
 
   const loadView = useCallback(async () => {
-    if (!currentId) {
+    if (!currentId && !dq) {
       const [rootCats, tree] = await Promise.all([
         api.get("/categories", { params: { parent_id: "root" } }),
         api.get("/categories/tree"),
@@ -52,23 +57,49 @@ export default function ProductsPage() {
         product_count: 0,
       });
       setProducts([]);
+      setProductTotal(0);
       return;
     }
-    const [v, p, tree] = await Promise.all([
-      api.get(`/categories/${currentId}`),
-      api.get("/products", { params: { category_id: currentId } }),
-      api.get("/categories/tree"),
-    ]);
-    const map = {};
-    const walk = (arr) => arr.forEach((c) => { map[c.id] = c.product_count; walk(c.children || []); });
-    walk(tree.data);
-    setView({ ...v.data, children: (v.data.children || []).map((c) => ({ ...c, product_count: map[c.id] || 0 })) });
+    const params = { limit: PAGE_SIZE, offset: 0 };
+    if (dq) params.q = dq;
+    if (currentId) params.category_id = currentId;
+    const promises = [
+      api.get("/products", { params }),
+      api.get("/products/count", { params: { q: dq || undefined, category_id: currentId || undefined } }).catch(() => ({ data: { total: 0 } })),
+    ];
+    if (currentId) {
+      promises.push(api.get(`/categories/${currentId}`));
+      promises.push(api.get("/categories/tree"));
+    }
+    const [p, cnt, v, tree] = await Promise.all(promises);
     setProducts(p.data);
-  }, [currentId]);
+    setProductTotal(cnt.data?.total ?? p.data.length);
+    if (v && tree) {
+      const map = {};
+      const walk = (arr) => arr.forEach((c) => { map[c.id] = c.product_count; walk(c.children || []); });
+      walk(tree.data);
+      setView({ ...v.data, children: (v.data.children || []).map((c) => ({ ...c, product_count: map[c.id] || 0 })) });
+    } else if (dq && !currentId) {
+      // Search-only mode with no category context
+      setView((prev) => ({ ...prev, category: null, breadcrumb: [], children: [], product_count: cnt.data?.total ?? 0 }));
+    }
+  }, [currentId, dq]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || products.length >= productTotal) return;
+    setLoadingMore(true);
+    try {
+      const params = { limit: PAGE_SIZE, offset: products.length };
+      if (dq) params.q = dq;
+      if (currentId) params.category_id = currentId;
+      const { data } = await api.get("/products", { params });
+      setProducts((prev) => [...prev, ...data]);
+    } finally { setLoadingMore(false); }
+  }, [dq, currentId, products.length, productTotal, loadingMore]);
 
   useEffect(() => { loadView(); }, [loadView]);
 
-  const filtered = products.filter((p) => !q || `${p.name} ${p.brand} ${p.ean} ${p.sku}`.toLowerCase().includes(q.toLowerCase()));
+  const filtered = useMemo(() => products, [products]);
 
   const openProduct = (p) => { setEditing(p); setPForm(p ? { ...emptyProduct, ...p } : emptyProduct); };
 

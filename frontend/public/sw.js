@@ -1,5 +1,5 @@
 /* VapePOS Service Worker — app-shell cache, minimal offline */
-const VERSION = "vapepos-v9";
+const VERSION = "vapepos-v11";
 const APP_SHELL = [
   "/",
   "/manifest.json",

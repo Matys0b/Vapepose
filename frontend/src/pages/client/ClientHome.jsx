@@ -19,27 +19,28 @@ export default function ClientHome() {
   return (
     <div className="max-w-md mx-auto p-4 space-y-4">
       {/* Loyalty hero */}
-      <Card className="p-5 bg-gradient-to-br from-violet-700/50 via-fuchsia-700/40 to-pink-600/30 border-fuchsia-500/30 relative overflow-hidden" data-testid="loyalty-card">
-        <div className="absolute -top-16 -right-16 w-52 h-52 rounded-full bg-fuchsia-500/30 blur-3xl" />
-        <div className="absolute inset-0 grain opacity-30" />
+      <Card className="p-5 bg-gradient-to-br from-violet-700/50 via-fuchsia-700/40 to-pink-600/30 border-fuchsia-500/30 relative overflow-hidden shine" data-testid="loyalty-card">
+        <div className="absolute -top-20 -right-20 w-60 h-60 rounded-full bg-fuchsia-500/40 blur-3xl" />
+        <div className="absolute -bottom-16 -left-12 w-40 h-40 rounded-full bg-violet-500/30 blur-3xl" />
+        <div className="absolute inset-0 grain opacity-40" />
         <div className="relative">
           <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-violet-100/90">
             <Sparkles className="w-3.5 h-3.5" /> Fidélité
           </div>
           <div className="flex items-baseline gap-2 mt-1">
-            <div className="font-display text-6xl font-black text-white leading-none" data-testid="loyalty-points">{pts}</div>
-            <div className="text-xs text-violet-100/80">pts</div>
+            <div className="font-display text-7xl font-black text-white leading-none drop-shadow-[0_4px_12px_rgba(217,70,239,0.5)]" data-testid="loyalty-points">{pts}</div>
+            <div className="text-xs text-violet-100/80 font-semibold">pts</div>
           </div>
           <div className="mt-5">
-            <div className="flex justify-between text-[11px] mb-1">
+            <div className="flex justify-between text-[11px] mb-1.5">
               <span className="text-slate-100">Prochaine récompense</span>
-              <span className="font-mono-num text-pink-200">{pts} / {nextReward}</span>
+              <span className="font-mono-num text-pink-100">{pts} / {nextReward}</span>
             </div>
-            <div className="h-2 rounded-full bg-slate-950/40 overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-fuchsia-300 to-pink-200 transition-all" style={{ width: `${progress}%` }} />
+            <div className="h-2.5 rounded-full bg-slate-950/40 overflow-hidden shadow-inner">
+              <div className="h-full bg-gradient-to-r from-fuchsia-300 via-pink-300 to-rose-200 transition-all rounded-full shadow-[0_0_18px_rgba(244,114,182,0.6)]" style={{ width: `${progress}%` }} />
             </div>
-            <div className="text-[10px] text-slate-100/80 mt-1">
-              Encore {Math.max(0, nextReward - pts)} pts pour ta prochaine récompense
+            <div className="text-[10px] text-slate-100/80 mt-1.5">
+              Encore <span className="font-bold text-pink-200">{Math.max(0, nextReward - pts)}</span> pts pour ta prochaine récompense
             </div>
           </div>
         </div>

@@ -3,9 +3,11 @@ import { useAuth } from "../contexts/AuthContext";
 import { api, formatApiError } from "../lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import {
   Search, ScanLine, Zap, User as UserIcon, QrCode, Percent, Pause, RotateCcw, X,
-  CreditCard, LayoutDashboard, LogOut, Trash2, Plus, Minus, Package, Coins, Star
+  CreditCard, LayoutDashboard, LogOut, Trash2, Plus, Minus, Package, Coins, Star,
+  ChevronRight, Home, FolderOpen
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -26,9 +28,14 @@ export default function POS() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [activeCat, setActiveCat] = useState("favorites");
+  const [productTotal, setProductTotal] = useState(0);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsLoadingMore, setProductsLoadingMore] = useState(false);
+  const [tree, setTree] = useState([]);
+  const [currentPath, setCurrentPath] = useState([]); // array of category IDs from root
   const [q, setQ] = useState("");
+  const dq = useDebouncedValue(q, 250);
+  const PAGE = 60;
   const [cart, setCart] = useState([]); // {product_id,name,unit_price,quantity,discount,vat_rate,image_url,variant,brand}
   const [customer, setCustomer] = useState(null);
   const [globalDiscount, setGlobalDiscount] = useState(0);
@@ -45,18 +52,59 @@ export default function POS() {
   const { locked, lock, unlock } = useKioskLock();
   const scanBufferRef = useRef({ buf: "", ts: 0 });
 
-  const loadProducts = useCallback(async () => {
-    const params = {};
-    if (q) params.q = q;
-    else if (activeCat && activeCat !== "favorites" && activeCat !== "all") params.category_id = activeCat;
-    else if (activeCat === "favorites") params.favorite = true;
-    const { data } = await api.get("/products", { params });
-    setProducts(data);
-  }, [q, activeCat]);
+  // Derived navigation state from the shared tree (source of truth = back-office)
+  const { currentLevel, currentCat, breadcrumb } = useMemo(() => {
+    let level = tree;
+    let cat = null;
+    const bc = [];
+    for (const id of currentPath) {
+      const found = level.find((c) => c.id === id);
+      if (!found) break;
+      cat = found;
+      bc.push(found);
+      level = found.children || [];
+    }
+    return { currentLevel: level, currentCat: cat, breadcrumb: bc };
+  }, [tree, currentPath]);
 
-  const loadCategories = useCallback(async () => {
-    const { data } = await api.get("/categories");
-    setCategories(data);
+  const buildParams = useCallback((extra = {}) => {
+    const params = { limit: PAGE, ...extra };
+    if (dq) params.q = dq;
+    else if (currentCat) params.category_id = currentCat.id;
+    else return null; // root without search → no product fetch
+    return params;
+  }, [dq, currentCat]);
+
+  const loadProducts = useCallback(async () => {
+    const params = buildParams({ offset: 0 });
+    if (!params) { setProducts([]); setProductTotal(0); return; }
+    setProductsLoading(true);
+    try {
+      const countParams = { ...params }; delete countParams.limit; delete countParams.offset;
+      const [{ data }, cnt] = await Promise.all([
+        api.get("/products", { params }),
+        api.get("/products/count", { params: countParams }).catch(() => ({ data: { total: 0 } })),
+      ]);
+      setProducts(data);
+      setProductTotal(cnt.data?.total ?? data.length);
+    } finally {
+      setProductsLoading(false);
+    }
+  }, [buildParams]);
+
+  const loadMoreProducts = useCallback(async () => {
+    const params = buildParams({ offset: products.length });
+    if (!params || productsLoadingMore || products.length >= productTotal) return;
+    setProductsLoadingMore(true);
+    try {
+      const { data } = await api.get("/products", { params });
+      setProducts((prev) => [...prev, ...data]);
+    } finally { setProductsLoadingMore(false); }
+  }, [buildParams, products.length, productTotal, productsLoadingMore]);
+
+  const loadTree = useCallback(async () => {
+    const { data } = await api.get("/categories/tree");
+    setTree(data);
   }, []);
 
   const loadSession = useCallback(async () => {
@@ -69,7 +117,7 @@ export default function POS() {
     setSuspendedCount(data.length);
   }, []);
 
-  useEffect(() => { loadCategories(); loadSession(); loadSuspended(); api.get("/stores").then((r) => setStores(r.data)); }, [loadCategories, loadSession, loadSuspended]);
+  useEffect(() => { loadTree(); loadSession(); loadSuspended(); api.get("/stores").then((r) => setStores(r.data)); }, [loadTree, loadSession, loadSuspended]);
   useEffect(() => { loadProducts(); }, [loadProducts]);
 
   // HID barcode scanner listener (fast-typing input outside form fields)
@@ -207,11 +255,11 @@ export default function POS() {
       {/* Top bar */}
       <div className="h-16 px-4 flex items-center justify-between border-b border-violet-500/15 bg-slate-950/40 backdrop-blur">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl aurora-badge flex items-center justify-center">
             <Zap className="w-5 h-5 text-white" />
           </div>
           <div>
-            <div className="font-display font-black text-lg leading-tight">VapePOS</div>
+            <div className="font-display font-black text-lg leading-tight gradient-text">VapePOS</div>
             <div className="text-[10px] uppercase tracking-widest text-violet-300/70">Cha Va'Pote</div>
           </div>
           <div className="hidden md:flex items-center gap-2 ml-4">
@@ -292,67 +340,94 @@ export default function POS() {
             </Button>
           </div>
 
-          {/* Category pills */}
-          <div className="flex gap-2 overflow-x-auto scroll-thin pb-1">
-            <CatPill active={activeCat === "favorites"} onClick={() => { setActiveCat("favorites"); setQ(""); }} testid="cat-favorites">
-              <Star className="w-3.5 h-3.5 mr-1" /> Favoris
-            </CatPill>
-            <CatPill active={activeCat === "all"} onClick={() => { setActiveCat("all"); setQ(""); }} testid="cat-all">
-              Tous
-            </CatPill>
-            {categories.map((c) => (
-              <CatPill
-                key={c.id}
-                active={activeCat === c.id}
-                onClick={() => { setActiveCat(c.id); setQ(""); }}
-                color={c.color}
-                testid={`cat-${c.name.toLowerCase().replace(/\s|\//g, "-")}`}
-              >
-                {c.name}
-              </CatPill>
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-1 text-sm flex-wrap" data-testid="pos-breadcrumb">
+            <button
+              onClick={() => setCurrentPath([])}
+              className={`flex items-center gap-1 px-2.5 h-9 rounded-lg border transition ${
+                currentPath.length === 0
+                  ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 border-transparent text-white shadow-lg shadow-fuchsia-900/30"
+                  : "bg-slate-900/60 text-slate-300 border-violet-500/15 hover:border-fuchsia-500/40"
+              }`}
+              data-testid="crumb-root"
+            >
+              <Home className="w-3.5 h-3.5" /> Catégories
+            </button>
+            {breadcrumb.map((b, i) => (
+              <div key={b.id} className="flex items-center gap-1">
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                <button
+                  onClick={() => setCurrentPath((p) => p.slice(0, i + 1))}
+                  className={`px-2.5 h-9 rounded-lg border text-sm font-semibold whitespace-nowrap transition ${
+                    i === breadcrumb.length - 1
+                      ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 border-transparent text-white shadow-lg shadow-fuchsia-900/30"
+                      : "bg-slate-900/60 text-slate-300 border-violet-500/15 hover:border-fuchsia-500/40"
+                  }`}
+                  style={i === breadcrumb.length - 1 && b.color ? { boxShadow: `0 6px 20px -6px ${b.color}55` } : undefined}
+                  data-testid={`crumb-${b.id}`}
+                >
+                  {b.name}
+                </button>
+              </div>
             ))}
           </div>
 
-          {/* Product grid */}
-          <div className="flex-1 overflow-auto scroll-thin pr-1">
-            {products.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-slate-500 text-sm" data-testid="no-products">
-                Aucun produit
-              </div>
+          {/* Grid content */}
+          <div className="flex-1 overflow-auto scroll-thin pr-1" data-testid="pos-product-grid">
+            {dq ? (
+              // SEARCH MODE — flat product results across the catalog
+              productsLoading && products.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-500 text-sm">Recherche…</div>
+              ) : products.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-500 text-sm" data-testid="no-products">
+                  Aucun produit pour « {dq} »
+                </div>
+              ) : (
+                <>
+                  <ProductGrid products={products} addToCart={addToCart} fmt={fmt} />
+                  {products.length < productTotal && (
+                    <LoadMore onClick={loadMoreProducts} loading={productsLoadingMore} remaining={productTotal - products.length} />
+                  )}
+                </>
+              )
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {products.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => addToCart(p)}
-                    className="tile-glow text-left rounded-2xl overflow-hidden bg-slate-900/60 border border-violet-500/15 hover:border-fuchsia-500/40"
-                    data-testid={`pos-product-card-${p.id}`}
-                  >
-                    <div className="aspect-[4/3] bg-gradient-to-br from-violet-800/30 to-fuchsia-700/20 relative overflow-hidden">
-                      {p.image_url ? (
-                        <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Package className="w-10 h-10 text-violet-400/40" />
-                        </div>
-                      )}
-                      {p.is_favorite && (
-                        <div className="absolute top-2 left-2 text-amber-300"><Star className="w-4 h-4 fill-amber-300" /></div>
-                      )}
-                      <div className={`absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded ${p.stock <= p.stock_alert ? "bg-rose-500/80 text-white" : "bg-emerald-500/80 text-slate-950"}`}>
-                        {p.stock}
-                      </div>
+              // BROWSE MODE — same categories as the back-office
+              <>
+                {currentLevel.length > 0 && (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 reveal-stagger" data-testid="category-tiles">
+                      {currentLevel.map((c) => (
+                        <CategoryTile key={c.id} cat={c} onClick={() => setCurrentPath((p) => [...p, c.id])} />
+                      ))}
                     </div>
-                    <div className="p-2.5">
-                      <div className="text-[10px] uppercase tracking-wider text-violet-300/80 truncate">{p.brand || " "}</div>
-                      <div className="text-sm font-semibold leading-tight line-clamp-2 min-h-[2.5rem]">{p.name}</div>
-                      <div className="mt-1 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-400">{p.variant || ""}</span>
-                        <span className="font-mono-num font-bold text-pink-300">{fmt(p.price)}</span>
+                    {products.length > 0 && (
+                      <div className="mt-6 mb-2 text-[10px] uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                        <Package className="w-3 h-3" /> Produits directement dans « {currentCat?.name} »
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    )}
+                  </>
+                )}
+                {products.length > 0 && (
+                  <>
+                    <ProductGrid products={products} addToCart={addToCart} fmt={fmt} />
+                    {products.length < productTotal && (
+                      <LoadMore onClick={loadMoreProducts} loading={productsLoadingMore} remaining={productTotal - products.length} />
+                    )}
+                  </>
+                )}
+                {currentLevel.length === 0 && products.length === 0 && !productsLoading && (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-500 text-sm gap-2 py-10" data-testid="no-products">
+                    <Package className="w-10 h-10 text-violet-500/40" />
+                    {currentCat
+                      ? <>Aucun produit dans « {currentCat.name} » — ajoute-les depuis Gestion → Produits.</>
+                      : <>Aucune catégorie encore. Crée-les depuis Gestion → Produits, elles apparaîtront ici automatiquement.</>}
+                  </div>
+                )}
+              </>
+            )}
+            {(currentCat || dq) && productTotal > 0 && (
+              <div className="text-[10px] text-slate-500 text-center py-2">
+                {products.length} / {productTotal} produits
               </div>
             )}
           </div>
@@ -462,7 +537,7 @@ export default function POS() {
             <button
               disabled={!canPay}
               onClick={() => setShowPayment(true)}
-              className="col-span-4 h-16 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xl tracking-tight flex items-center justify-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="pay-btn col-span-4 h-16 rounded-2xl font-black text-xl tracking-tight flex items-center justify-center gap-3"
               data-testid="btn-open-payment"
             >
               <CreditCard className="w-6 h-6" />
@@ -529,6 +604,113 @@ function CatPill({ active, onClick, children, color, testid }) {
     >
       {children}
     </button>
+  );
+}
+
+function CategoryTile({ cat, onClick }) {
+  const color = cat.color || "#8B5CF6";
+  const childCount = cat.children?.length || 0;
+  const productCount = cat.product_count || 0;
+  return (
+    <button
+      onClick={onClick}
+      data-testid={`pos-cat-tile-${cat.id}`}
+      className="tile-glow relative rounded-2xl overflow-hidden aspect-[4/3] p-5 text-left border border-violet-500/15 hover:border-fuchsia-500/50 bg-slate-900/60"
+      style={{ backgroundImage: `linear-gradient(135deg, ${color}33 0%, ${color}0d 60%, transparent 100%)` }}
+    >
+      <div className="absolute inset-0 grain opacity-40 pointer-events-none" />
+      <div
+        className="absolute -top-10 -right-10 w-44 h-44 rounded-full opacity-50 blur-3xl transition-opacity group-hover:opacity-80"
+        style={{ background: color }}
+      />
+      <div
+        className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full opacity-30 blur-2xl"
+        style={{ background: `${color}` }}
+      />
+      <div className="relative h-full flex flex-col justify-between">
+        <div className="flex items-start justify-between">
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg"
+            style={{ background: `linear-gradient(135deg, ${color}, #EC4899)`, boxShadow: `0 12px 24px -8px ${color}66` }}
+          >
+            <FolderOpen className="w-5 h-5 text-white" />
+          </div>
+          {childCount > 0 && (
+            <div className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full bg-slate-950/60 border border-violet-500/20 text-violet-200 backdrop-blur">
+              {childCount} sous-cat.
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="font-display text-lg sm:text-xl font-black leading-tight line-clamp-2">{cat.name}</div>
+          <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-2">
+            {productCount > 0 ? (
+              <span className="inline-flex items-center gap-1 font-mono-num">
+                <Package className="w-3 h-3" /> {productCount} produit{productCount > 1 ? "s" : ""}
+              </span>
+            ) : childCount === 0 ? (
+              <span className="opacity-60">Vide</span>
+            ) : (
+              <span className="opacity-70">Explorer →</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ProductGrid({ products, addToCart, fmt }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      {products.map((p) => (
+        <button
+          key={p.id}
+          onClick={() => addToCart(p)}
+          className="tile-glow text-left rounded-2xl overflow-hidden bg-slate-900/60 border border-violet-500/15 hover:border-fuchsia-500/40"
+          data-testid={`pos-product-card-${p.id}`}
+        >
+          <div className="aspect-[4/3] bg-gradient-to-br from-violet-800/30 to-fuchsia-700/20 relative overflow-hidden">
+            {p.image_url ? (
+              <img src={p.image_url} alt={p.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Package className="w-10 h-10 text-violet-400/40" />
+              </div>
+            )}
+            {p.is_favorite && (
+              <div className="absolute top-2 left-2 text-amber-300"><Star className="w-4 h-4 fill-amber-300" /></div>
+            )}
+            <div className={`absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded ${p.stock <= p.stock_alert ? "bg-rose-500/80 text-white" : "bg-emerald-500/80 text-slate-950"}`}>
+              {p.stock}
+            </div>
+          </div>
+          <div className="p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-violet-300/80 truncate">{p.brand || " "}</div>
+            <div className="text-sm font-semibold leading-tight line-clamp-2 min-h-[2.5rem]">{p.name}</div>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">{p.variant || ""}</span>
+              <span className="font-mono-num font-bold text-pink-300">{fmt(p.price)}</span>
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function LoadMore({ onClick, loading, remaining }) {
+  return (
+    <div className="mt-3 flex justify-center pb-3">
+      <button
+        onClick={onClick}
+        disabled={loading}
+        data-testid="btn-load-more-products"
+        className="h-10 px-4 rounded-xl bg-slate-900/70 border border-violet-500/25 text-sm text-slate-200 hover:border-fuchsia-500/40 disabled:opacity-40"
+      >
+        {loading ? "Chargement…" : `Voir plus (${remaining} restants)`}
+      </button>
+    </div>
   );
 }
 

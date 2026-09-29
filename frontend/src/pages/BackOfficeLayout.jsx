@@ -29,11 +29,11 @@ export default function BackOfficeLayout() {
     <div className="min-h-screen flex bg-[#0f0b1e] text-slate-100">
       <aside className="w-60 border-r border-violet-500/15 bg-slate-950/50 backdrop-blur flex flex-col">
         <div className="h-16 px-4 flex items-center gap-2 border-b border-violet-500/15">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center">
+          <div className="w-9 h-9 rounded-lg aurora-badge flex items-center justify-center">
             <Zap className="w-5 h-5" />
           </div>
           <div>
-            <div className="font-display font-black">VapePOS</div>
+            <div className="font-display font-black gradient-text">VapePOS</div>
             <div className="text-[10px] uppercase tracking-widest text-violet-300/70">Gestion</div>
           </div>
         </div>

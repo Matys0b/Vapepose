@@ -42,13 +42,13 @@ function Shell() {
         </header>
       )}
 
-      <main className="relative pb-24">
+      <main className="relative pb-28">
         <Outlet />
       </main>
 
       {customer && !isLoginRoute && (
-        <nav className="fixed bottom-0 inset-x-0 z-40 backdrop-blur-xl bg-[#0f0b1e]/85 border-t border-violet-500/20" data-testid="client-bottom-nav">
-          <div className="max-w-md mx-auto grid grid-cols-4 h-16">
+        <nav className="fixed bottom-3 inset-x-3 z-40 max-w-md mx-auto glass-card rounded-2xl shadow-xl border border-violet-500/25" data-testid="client-bottom-nav">
+          <div className="grid grid-cols-4 h-16">
             <BottomTab to="/client/me" icon={Home} label="Accueil" end />
             <BottomTab to="/client/me/qr" icon={QrCode} label="Mon QR" />
             <BottomTab to="/client/me/achats" icon={ShoppingBag} label="Achats" />

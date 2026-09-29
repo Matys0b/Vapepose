@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { useCustomerAuth } from "../contexts/CustomerAuthContext";
+import { useCustomerAuth, CustomerAuthProvider } from "../contexts/CustomerAuthContext";
 import { api, formatApiError } from "../lib/api";
 import { toast } from "sonner";
-import { ArrowLeft, Store, Zap, MapPin, User, Mail, Lock, Phone, Calendar, ArrowRight } from "lucide-react";
-import { CustomerAuthProvider } from "../contexts/CustomerAuthContext";
+import {
+  ArrowLeft, Store, Zap, MapPin, User, Mail, Lock, Phone, Calendar, ArrowRight, KeyRound,
+} from "lucide-react";
 
-/** Wrapper so we can use the customer context here too (staff login stays untouched). */
 export default function LoginWrapper() {
   return (
     <CustomerAuthProvider>
@@ -17,31 +17,87 @@ export default function LoginWrapper() {
 }
 
 function LoginInner() {
-  const { pinLogin, refresh } = useAuth();
-  const { register: registerCustomer, login: loginCustomer } = useCustomerAuth();
+  const { universalLogin, pinLogin, refresh } = useAuth();
+  const { register: registerCustomer, refresh: refreshCustomer } = useCustomerAuth();
   const nav = useNavigate();
-  const [audience, setAudience] = useState("client"); // client | staff
-  const [clientMode, setClientMode] = useState("login"); // login | signup
-  const [step, setStep] = useState("person");
-  const [accounts, setAccounts] = useState([]);
-  const [stores, setStores] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [pin, setPin] = useState("");
+
+  // Modes:
+  //   'auto'   : one form email/password auto-detect
+  //   'signup' : new client
+  //   'pin'    : quick vendor PIN cards
+  //   'store'  : staff post-login store picker (if needed)
+  const [mode, setMode] = useState("auto");
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
   const [form, setForm] = useState({
     first_name: "", last_name: "", email: "", password: "", phone: "",
     birth_date: "", accept_terms: false,
   });
+
+  // PIN quick-switch state
+  const [accounts, setAccounts] = useState([]);
+  const [stores, setStores] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const [pinStep, setPinStep] = useState("person"); // person|pin
+  const [staffAfterLogin, setStaffAfterLogin] = useState(null);
 
   useEffect(() => {
     api.get("/auth/accounts").then((r) => setAccounts(r.data)).catch(() => {});
     api.get("/stores/public").then((r) => setStores(r.data)).catch(() => {});
   }, []);
 
-  const pushPin = (d) => { setErr(""); setPin((p) => p.length < 6 ? p + d : p); };
-  const backPin = () => { setErr(""); setPin((p) => p.slice(0, -1)); };
+  // --- Auto-detect login (universal) --------------------------------
+  const submitAuto = async (e) => {
+    e.preventDefault();
+    if (!form.email || !form.password) { toast.error("Email et mot de passe requis"); return; }
+    setBusy(true);
+    try {
+      const data = await universalLogin(form.email, form.password);
+      if (data.type === "customer") {
+        await refreshCustomer();
+        toast.success(`Bienvenue ${data.first_name || ""}`);
+        nav("/client/me");
+      } else if (data.type === "staff") {
+        setStaffAfterLogin(data);
+        if (data.store_id) {
+          await refresh();
+          toast.success(`${data.name} · caisse prête`);
+          nav("/pos");
+        } else {
+          // Need store pick
+          setMode("store");
+        }
+      }
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally { setBusy(false); }
+  };
 
+  // --- Signup client (with 18+ + CGU) -------------------------------
+  const submitSignup = async (e) => {
+    e.preventDefault();
+    if (!form.first_name.trim()) { toast.error("Prénom requis"); return; }
+    if (!form.birth_date) { toast.error("Date de naissance requise"); return; }
+    if (form.password.length < 6) { toast.error("Mot de passe : 6 caractères minimum"); return; }
+    if (!form.accept_terms) { toast.error("Merci d'accepter les conditions d'utilisation"); return; }
+    const today = new Date();
+    const b = new Date(form.birth_date);
+    const age = today.getFullYear() - b.getFullYear() - ((today.getMonth() < b.getMonth() || (today.getMonth() === b.getMonth() && today.getDate() < b.getDate())) ? 1 : 0);
+    if (age < 18) { toast.error("Inscription réservée aux 18 ans et plus."); return; }
+    setBusy(true);
+    try {
+      await registerCustomer(form);
+      toast.success("Compte créé, bienvenue !");
+      nav("/client/me");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  // --- PIN quick-switch ---------------------------------------------
+  const pushPin = (d) => { setErr(""); setPin((p) => (p.length < 6 ? p + d : p)); };
+  const backPin = () => { setErr(""); setPin((p) => p.slice(0, -1)); };
   const submitPin = async (e) => {
     e?.preventDefault?.();
     if (pin.length < 4) return;
@@ -49,7 +105,7 @@ function LoginInner() {
     try {
       const u = await pinLogin(pin);
       if (u.name !== selected.name) { setErr(`PIN ne correspond pas à ${selected.name}`); setPin(""); }
-      else setStep("store");
+      else { setStaffAfterLogin(u); setMode("store"); }
     } catch { setErr("PIN incorrect"); setPin(""); }
     finally { setBusy(false); }
   };
@@ -59,34 +115,9 @@ function LoginInner() {
     try {
       await api.post("/auth/switch-store", { store_id: s.id });
       await refresh();
-      toast.success(`${selected.name} · ${s.name}`);
+      toast.success(`${staffAfterLogin?.name || ""} · ${s.name}`);
       nav("/pos");
     } catch (e) { toast.error(formatApiError(e)); } finally { setBusy(false); }
-  };
-
-  const submitClient = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      if (clientMode === "login") {
-        await loginCustomer(form.email, form.password);
-      } else {
-        if (!form.first_name.trim()) { toast.error("Prénom requis"); return; }
-        if (!form.birth_date) { toast.error("Date de naissance requise"); return; }
-        if (form.password.length < 6) { toast.error("Mot de passe : 6 caractères minimum"); return; }
-        if (!form.accept_terms) { toast.error("Merci d'accepter les conditions d'utilisation"); return; }
-        // Client-side age check for UX
-        const today = new Date();
-        const b = new Date(form.birth_date);
-        const age = today.getFullYear() - b.getFullYear() - ((today.getMonth() < b.getMonth() || (today.getMonth() === b.getMonth() && today.getDate() < b.getDate())) ? 1 : 0);
-        if (age < 18) { toast.error("Inscription réservée aux 18 ans et plus."); return; }
-        await registerCustomer(form);
-      }
-      toast.success("Bienvenue !");
-      nav("/client/me");
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Erreur");
-    } finally { setBusy(false); }
   };
 
   return (
@@ -105,9 +136,9 @@ function LoginInner() {
             <div className="font-display text-2xl font-black tracking-tight">Cha Va'Pote</div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-violet-300/70">VapePOS · Fidélité</div>
           </div>
-          {audience === "staff" && step !== "person" && (
+          {(mode === "signup" || mode === "pin" || mode === "store") && (
             <button
-              onClick={() => { setStep("person"); setSelected(null); setPin(""); setErr(""); }}
+              onClick={() => { setMode("auto"); setPin(""); setErr(""); setSelected(null); setPinStep("person"); }}
               className="ml-auto text-sm text-slate-400 hover:text-slate-200 flex items-center gap-1"
               data-testid="btn-back"
             >
@@ -116,84 +147,95 @@ function LoginInner() {
           )}
         </div>
 
-        {/* Audience toggle */}
-        <div className="mx-auto max-w-md mb-6 grid grid-cols-2 rounded-2xl p-1 bg-slate-900/70 border border-violet-500/20">
-          <button
-            onClick={() => setAudience("client")}
-            data-testid="tab-audience-client"
-            className={`h-11 rounded-xl text-sm font-bold transition ${audience === "client" ? "bg-gradient-to-r from-fuchsia-500 to-violet-600 text-white shadow-lg shadow-fuchsia-900/40" : "text-slate-300"}`}
-          >
-            Client
-          </button>
-          <button
-            onClick={() => setAudience("staff")}
-            data-testid="tab-audience-staff"
-            className={`h-11 rounded-xl text-sm font-bold transition ${audience === "staff" ? "bg-gradient-to-r from-cyan-500 to-violet-600 text-white shadow-lg shadow-cyan-900/40" : "text-slate-300"}`}
-          >
-            Personnel
-          </button>
-        </div>
-
-        {audience === "client" && (
+        {/* AUTO : single form */}
+        {mode === "auto" && (
           <div className="max-w-md mx-auto">
-            <div className="grid grid-cols-2 rounded-xl p-1 bg-slate-900/60 border border-violet-500/15 mb-4">
-              <button data-testid="tab-login" onClick={() => setClientMode("login")} className={`h-10 rounded-lg text-sm font-semibold ${clientMode === "login" ? "bg-slate-800 text-white" : "text-slate-400"}`}>Se connecter</button>
-              <button data-testid="tab-register" onClick={() => setClientMode("signup")} className={`h-10 rounded-lg text-sm font-semibold ${clientMode === "signup" ? "bg-slate-800 text-white" : "text-slate-400"}`}>Créer un compte</button>
+            <div className="text-center mb-5">
+              <h1 className="font-display text-3xl sm:text-4xl font-black tracking-tight">Connexion</h1>
+              <p className="text-slate-400 text-sm mt-1">Entre ton email et ton mot de passe — on te redirige au bon endroit.</p>
             </div>
-            <form onSubmit={submitClient} className="rounded-2xl p-5 bg-slate-900/70 border border-violet-500/20 space-y-3">
-              {clientMode === "signup" && (
-                <>
-                  <Field icon={<User className="w-4 h-4" />}>
-                    <input required placeholder="Prénom" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="cf-input" data-testid="cf-first-name" />
-                  </Field>
-                  <Field icon={<User className="w-4 h-4" />}>
-                    <input placeholder="Nom (optionnel)" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="cf-input" data-testid="cf-last-name" />
-                  </Field>
-                  <Field icon={<Phone className="w-4 h-4" />}>
-                    <input placeholder="Téléphone (optionnel)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="cf-input" data-testid="cf-phone" />
-                  </Field>
-                  <Field icon={<Calendar className="w-4 h-4" />}>
-                    <input required type="date" placeholder="Date de naissance" value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} className="cf-input" data-testid="cf-birth-date" />
-                  </Field>
-                </>
-              )}
+            <form onSubmit={submitAuto} className="rounded-2xl p-5 bg-slate-900/70 border border-violet-500/20 space-y-3" data-testid="form-auto-login">
               <Field icon={<Mail className="w-4 h-4" />}>
-                <input required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="cf-input" data-testid="cf-email" />
+                <input required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="cf-input" data-testid="cf-email" autoComplete="email" />
               </Field>
               <Field icon={<Lock className="w-4 h-4" />}>
-                <input required type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="cf-input" data-testid="cf-password" />
+                <input required type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="cf-input" data-testid="cf-password" autoComplete="current-password" />
               </Field>
-              {clientMode === "signup" && (
-                <label className="flex items-start gap-2 text-[11px] text-slate-400 cursor-pointer">
-                  <input type="checkbox" checked={form.accept_terms} onChange={(e) => setForm({ ...form, accept_terms: e.target.checked })} className="mt-0.5 accent-fuchsia-500" data-testid="cf-accept-terms" />
-                  <span>
-                    Je certifie avoir au moins 18 ans et j'accepte la{" "}
-                    <a href="/privacy" target="_blank" className="text-fuchsia-300 underline">politique de confidentialité</a>.
-                  </span>
-                </label>
-              )}
-              <button type="submit" disabled={busy} data-testid="btn-cf-submit" className="w-full h-12 rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-500 font-bold flex items-center justify-center gap-2 disabled:opacity-40">
-                {busy ? "…" : clientMode === "login" ? "Se connecter" : "Créer mon compte"} <ArrowRight className="w-4 h-4" />
+              <button
+                type="submit" disabled={busy} data-testid="btn-auto-submit"
+                className="w-full h-12 rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-500 font-bold flex items-center justify-center gap-2 disabled:opacity-40"
+              >
+                {busy ? "…" : "Se connecter"} <ArrowRight className="w-4 h-4" />
               </button>
-              <div className="text-[11px] text-slate-500 text-center">
-                {clientMode === "signup"
-                  ? "1 point de fidélité par euro dépensé — récompenses exclusives à venir."
-                  : "Ton QR fidélité t'attend juste après la connexion."}
+              <div className="text-center pt-1">
+                <button type="button" onClick={() => setMode("signup")} className="text-sm text-fuchsia-300 hover:text-fuchsia-200" data-testid="btn-goto-signup">
+                  Pas encore de compte ? <span className="font-bold underline">Créer mon compte</span>
+                </button>
               </div>
             </form>
+
+            <div className="flex items-center gap-3 my-4 text-[10px] uppercase tracking-widest text-slate-500">
+              <span className="flex-1 h-px bg-violet-500/15" />
+              ou
+              <span className="flex-1 h-px bg-violet-500/15" />
+            </div>
+
+            <button
+              type="button" onClick={() => setMode("pin")}
+              className="w-full h-11 rounded-xl bg-slate-900/60 border border-violet-500/15 text-slate-300 hover:border-fuchsia-500/40 text-sm font-semibold flex items-center justify-center gap-2"
+              data-testid="btn-goto-pin"
+            >
+              <KeyRound className="w-4 h-4" /> Vendeur · connexion par PIN
+            </button>
+            <div className="text-center mt-3 text-[11px] text-slate-500">
+              <a href="/privacy" className="hover:text-slate-300">Politique de confidentialité</a>
+            </div>
             <style>{`.cf-input{background:transparent;border:none;outline:none;color:#f8fafc;flex:1;font-size:14px;height:42px}.cf-input::-webkit-calendar-picker-indicator{filter:invert(70%) sepia(30%) hue-rotate(220deg)}`}</style>
           </div>
         )}
 
-        {audience === "staff" && step === "person" && (
+        {/* SIGNUP client */}
+        {mode === "signup" && (
+          <div className="max-w-md mx-auto">
+            <div className="text-center mb-5">
+              <h1 className="font-display text-3xl sm:text-4xl font-black tracking-tight">Créer un compte</h1>
+              <p className="text-slate-400 text-sm mt-1">Réservé aux personnes majeures — cumule des points à chaque passage en caisse.</p>
+            </div>
+            <form onSubmit={submitSignup} className="rounded-2xl p-5 bg-slate-900/70 border border-violet-500/20 space-y-3" data-testid="form-signup">
+              <Field icon={<User className="w-4 h-4" />}><input required placeholder="Prénom" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="cf-input" data-testid="cf-first-name" /></Field>
+              <Field icon={<User className="w-4 h-4" />}><input placeholder="Nom (optionnel)" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="cf-input" data-testid="cf-last-name" /></Field>
+              <Field icon={<Phone className="w-4 h-4" />}><input placeholder="Téléphone (optionnel)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="cf-input" data-testid="cf-phone" /></Field>
+              <Field icon={<Calendar className="w-4 h-4" />}><input required type="date" placeholder="Date de naissance" value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} className="cf-input" data-testid="cf-birth-date" /></Field>
+              <Field icon={<Mail className="w-4 h-4" />}><input required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="cf-input" data-testid="cf-email" /></Field>
+              <Field icon={<Lock className="w-4 h-4" />}><input required type="password" placeholder="Mot de passe (6+ car.)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="cf-input" data-testid="cf-password" /></Field>
+              <label className="flex items-start gap-2 text-[11px] text-slate-400 cursor-pointer">
+                <input type="checkbox" checked={form.accept_terms} onChange={(e) => setForm({ ...form, accept_terms: e.target.checked })} className="mt-0.5 accent-fuchsia-500" data-testid="cf-accept-terms" />
+                <span>Je certifie avoir au moins 18 ans et j'accepte la <a href="/privacy" target="_blank" rel="noreferrer" className="text-fuchsia-300 underline">politique de confidentialité</a>.</span>
+              </label>
+              <button type="submit" disabled={busy} data-testid="btn-signup-submit" className="w-full h-12 rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-500 font-bold flex items-center justify-center gap-2 disabled:opacity-40">
+                {busy ? "…" : "Créer mon compte"} <ArrowRight className="w-4 h-4" />
+              </button>
+              <div className="text-center pt-1">
+                <button type="button" onClick={() => setMode("auto")} className="text-xs text-slate-400 hover:text-slate-200" data-testid="btn-back-to-login">
+                  J'ai déjà un compte
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* PIN quick-switch */}
+        {mode === "pin" && pinStep === "person" && (
           <div>
-            <h1 className="font-display text-3xl sm:text-4xl font-black mb-1 tracking-tight text-center">Qui prend la caisse ?</h1>
-            <p className="text-slate-400 mb-6 text-center text-sm">Sélectionne ton profil pour commencer.</p>
+            <div className="text-center mb-5">
+              <h1 className="font-display text-3xl sm:text-4xl font-black tracking-tight">Qui prend la caisse ?</h1>
+              <p className="text-slate-400 mb-4 text-sm">Choisis ton profil, entre ton PIN.</p>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
               {accounts.map((a) => (
                 <button
                   key={a.id}
-                  onClick={() => { setSelected(a); setStep("pin"); }}
+                  onClick={() => { setSelected(a); setPinStep("pin"); }}
                   className="group relative rounded-3xl p-6 bg-slate-900/70 border border-violet-500/20 hover:border-fuchsia-500/60 transition text-left overflow-hidden"
                   data-testid={`person-${a.name.toLowerCase()}`}
                   style={{ boxShadow: `0 0 40px -20px ${a.color || "#8B5CF6"}66` }}
@@ -206,12 +248,12 @@ function LoginInner() {
                   <div className="relative text-xs uppercase tracking-widest text-slate-400 mt-1">Administrateur</div>
                 </button>
               ))}
-              {accounts.length === 0 && <div className="col-span-3 text-center text-slate-500 py-10">Chargement des comptes…</div>}
+              {accounts.length === 0 && <div className="col-span-3 text-center text-slate-500 py-10">Chargement…</div>}
             </div>
           </div>
         )}
 
-        {audience === "staff" && step === "pin" && selected && (
+        {mode === "pin" && pinStep === "pin" && selected && (
           <div className="max-w-sm mx-auto">
             <div className="flex flex-col items-center mb-6">
               <div className="w-24 h-24 rounded-2xl flex items-center justify-center font-display text-5xl font-black text-white mb-3" style={{ background: `linear-gradient(135deg, ${selected.color || "#8B5CF6"}, #EC4899)` }}>
@@ -236,14 +278,18 @@ function LoginInner() {
                 <button type="button" data-testid="pin-0" onClick={() => pushPin("0")} className="numpad-key">0</button>
                 <button type="submit" disabled={busy || pin.length < 4} data-testid="btn-pin-submit" className="numpad-key text-white border-0 disabled:opacity-40" style={{ background: `linear-gradient(135deg, ${selected.color || "#8B5CF6"}, #EC4899)` }}>OK</button>
               </div>
-              <div className="mt-3 text-[10px] uppercase tracking-widest text-slate-500 text-center">
-                Démo : Mathis 1111 · Emma 2222 · Jessica 3333
-              </div>
+              <button
+                type="button" onClick={() => { setPinStep("person"); setPin(""); setErr(""); }}
+                className="w-full mt-3 text-xs text-slate-400 hover:text-slate-200"
+              >
+                Changer de profil
+              </button>
             </form>
           </div>
         )}
 
-        {audience === "staff" && step === "store" && (
+        {/* STORE picker (staff without store yet) */}
+        {mode === "store" && (
           <div>
             <div className="text-center mb-6">
               <h1 className="font-display text-3xl sm:text-4xl font-black mb-1 tracking-tight">Choisis ton magasin</h1>

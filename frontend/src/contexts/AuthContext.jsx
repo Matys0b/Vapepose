@@ -31,6 +31,24 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const universalLogin = async (email, password) => {
+    setError("");
+    try {
+      const { data } = await api.post("/auth/universal-login", { email, password });
+      if (data.type === "staff" && data.token) {
+        localStorage.setItem("vapepos_token", data.token);
+        setUser(data);
+      } else if (data.type === "customer" && data.token) {
+        localStorage.setItem("vapepos_customer_token", data.token);
+        // Don't set staff user for customers
+      }
+      return data;
+    } catch (e) {
+      setError(formatApiError(e));
+      throw e;
+    }
+  };
+
   const pinLogin = async (pin) => {
     setError("");
     try {
@@ -51,7 +69,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, error, login, pinLogin, logout, refresh }}>
+    <AuthCtx.Provider value={{ user, error, login, pinLogin, universalLogin, logout, refresh }}>
       {children}
     </AuthCtx.Provider>
   );

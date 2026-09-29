@@ -4,9 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useCustomerAuth, CustomerAuthProvider } from "../contexts/CustomerAuthContext";
 import { api, formatApiError } from "../lib/api";
 import { toast } from "sonner";
-import {
-  ArrowLeft, Store, Zap, MapPin, User, Mail, Lock, Phone, Calendar, ArrowRight, KeyRound,
-} from "lucide-react";
+import { ArrowLeft, Store, Zap, MapPin, User, Mail, Lock, Phone, Calendar, ArrowRight } from "lucide-react";
 
 export default function LoginWrapper() {
   return (
@@ -17,38 +15,26 @@ export default function LoginWrapper() {
 }
 
 function LoginInner() {
-  const { universalLogin, pinLogin, refresh } = useAuth();
+  const { universalLogin, refresh } = useAuth();
   const { register: registerCustomer, refresh: refreshCustomer } = useCustomerAuth();
   const nav = useNavigate();
 
-  // Modes:
-  //   'auto'   : one form email/password auto-detect
-  //   'signup' : new client
-  //   'pin'    : quick vendor PIN cards
-  //   'store'  : staff post-login store picker (if needed)
-  const [mode, setMode] = useState("auto");
+  // Modes: 'login' | 'signup' | 'store' (staff post-login store picker if needed)
+  const [mode, setMode] = useState("login");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
     first_name: "", last_name: "", email: "", password: "", phone: "",
     birth_date: "", accept_terms: false,
   });
-
-  // PIN quick-switch state
-  const [accounts, setAccounts] = useState([]);
   const [stores, setStores] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState("");
-  const [pinStep, setPinStep] = useState("person"); // person|pin
   const [staffAfterLogin, setStaffAfterLogin] = useState(null);
 
   useEffect(() => {
-    api.get("/auth/accounts").then((r) => setAccounts(r.data)).catch(() => {});
     api.get("/stores/public").then((r) => setStores(r.data)).catch(() => {});
   }, []);
 
   // --- Auto-detect login (universal) --------------------------------
-  const submitAuto = async (e) => {
+  const submitLogin = async (e) => {
     e.preventDefault();
     if (!form.email || !form.password) { toast.error("Email et mot de passe requis"); return; }
     setBusy(true);
@@ -65,16 +51,14 @@ function LoginInner() {
           toast.success(`${data.name} · caisse prête`);
           nav("/pos");
         } else {
-          // Need store pick
           setMode("store");
         }
       }
-    } catch (e) {
-      toast.error(formatApiError(e));
+    } catch (err) {
+      toast.error(formatApiError(err));
     } finally { setBusy(false); }
   };
 
-  // --- Signup client (with 18+ + CGU) -------------------------------
   const submitSignup = async (e) => {
     e.preventDefault();
     if (!form.first_name.trim()) { toast.error("Prénom requis"); return; }
@@ -95,21 +79,6 @@ function LoginInner() {
     } finally { setBusy(false); }
   };
 
-  // --- PIN quick-switch ---------------------------------------------
-  const pushPin = (d) => { setErr(""); setPin((p) => (p.length < 6 ? p + d : p)); };
-  const backPin = () => { setErr(""); setPin((p) => p.slice(0, -1)); };
-  const submitPin = async (e) => {
-    e?.preventDefault?.();
-    if (pin.length < 4) return;
-    setBusy(true);
-    try {
-      const u = await pinLogin(pin);
-      if (u.name !== selected.name) { setErr(`PIN ne correspond pas à ${selected.name}`); setPin(""); }
-      else { setStaffAfterLogin(u); setMode("store"); }
-    } catch { setErr("PIN incorrect"); setPin(""); }
-    finally { setBusy(false); }
-  };
-
   const pickStore = async (s) => {
     setBusy(true);
     try {
@@ -117,7 +86,7 @@ function LoginInner() {
       await refresh();
       toast.success(`${staffAfterLogin?.name || ""} · ${s.name}`);
       nav("/pos");
-    } catch (e) { toast.error(formatApiError(e)); } finally { setBusy(false); }
+    } catch (err) { toast.error(formatApiError(err)); } finally { setBusy(false); }
   };
 
   return (
@@ -136,9 +105,9 @@ function LoginInner() {
             <div className="font-display text-2xl font-black tracking-tight">Cha Va'Pote</div>
             <div className="text-[10px] uppercase tracking-[0.25em] text-violet-300/70">VapePOS · Fidélité</div>
           </div>
-          {(mode === "signup" || mode === "pin" || mode === "store") && (
+          {(mode === "signup" || mode === "store") && (
             <button
-              onClick={() => { setMode("auto"); setPin(""); setErr(""); setSelected(null); setPinStep("person"); }}
+              onClick={() => setMode("login")}
               className="ml-auto text-sm text-slate-400 hover:text-slate-200 flex items-center gap-1"
               data-testid="btn-back"
             >
@@ -147,14 +116,13 @@ function LoginInner() {
           )}
         </div>
 
-        {/* AUTO : single form */}
-        {mode === "auto" && (
+        {mode === "login" && (
           <div className="max-w-md mx-auto">
             <div className="text-center mb-5">
               <h1 className="font-display text-3xl sm:text-4xl font-black tracking-tight">Connexion</h1>
-              <p className="text-slate-400 text-sm mt-1">Entre ton email et ton mot de passe — on te redirige au bon endroit.</p>
+              <p className="text-slate-400 text-sm mt-1">Entre ton email et ton mot de passe.</p>
             </div>
-            <form onSubmit={submitAuto} className="rounded-2xl p-5 bg-slate-900/70 border border-violet-500/20 space-y-3" data-testid="form-auto-login">
+            <form onSubmit={submitLogin} className="rounded-2xl p-5 bg-slate-900/70 border border-violet-500/20 space-y-3" data-testid="form-auto-login">
               <Field icon={<Mail className="w-4 h-4" />}>
                 <input required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="cf-input" data-testid="cf-email" autoComplete="email" />
               </Field>
@@ -173,28 +141,13 @@ function LoginInner() {
                 </button>
               </div>
             </form>
-
-            <div className="flex items-center gap-3 my-4 text-[10px] uppercase tracking-widest text-slate-500">
-              <span className="flex-1 h-px bg-violet-500/15" />
-              ou
-              <span className="flex-1 h-px bg-violet-500/15" />
-            </div>
-
-            <button
-              type="button" onClick={() => setMode("pin")}
-              className="w-full h-11 rounded-xl bg-slate-900/60 border border-violet-500/15 text-slate-300 hover:border-fuchsia-500/40 text-sm font-semibold flex items-center justify-center gap-2"
-              data-testid="btn-goto-pin"
-            >
-              <KeyRound className="w-4 h-4" /> Vendeur · connexion par PIN
-            </button>
-            <div className="text-center mt-3 text-[11px] text-slate-500">
+            <div className="text-center mt-4 text-[11px] text-slate-500">
               <a href="/privacy" className="hover:text-slate-300">Politique de confidentialité</a>
             </div>
             <style>{`.cf-input{background:transparent;border:none;outline:none;color:#f8fafc;flex:1;font-size:14px;height:42px}.cf-input::-webkit-calendar-picker-indicator{filter:invert(70%) sepia(30%) hue-rotate(220deg)}`}</style>
           </div>
         )}
 
-        {/* SIGNUP client */}
         {mode === "signup" && (
           <div className="max-w-md mx-auto">
             <div className="text-center mb-5">
@@ -216,7 +169,7 @@ function LoginInner() {
                 {busy ? "…" : "Créer mon compte"} <ArrowRight className="w-4 h-4" />
               </button>
               <div className="text-center pt-1">
-                <button type="button" onClick={() => setMode("auto")} className="text-xs text-slate-400 hover:text-slate-200" data-testid="btn-back-to-login">
+                <button type="button" onClick={() => setMode("login")} className="text-xs text-slate-400 hover:text-slate-200" data-testid="btn-back-to-login">
                   J'ai déjà un compte
                 </button>
               </div>
@@ -224,71 +177,6 @@ function LoginInner() {
           </div>
         )}
 
-        {/* PIN quick-switch */}
-        {mode === "pin" && pinStep === "person" && (
-          <div>
-            <div className="text-center mb-5">
-              <h1 className="font-display text-3xl sm:text-4xl font-black tracking-tight">Qui prend la caisse ?</h1>
-              <p className="text-slate-400 mb-4 text-sm">Choisis ton profil, entre ton PIN.</p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
-              {accounts.map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => { setSelected(a); setPinStep("pin"); }}
-                  className="group relative rounded-3xl p-6 bg-slate-900/70 border border-violet-500/20 hover:border-fuchsia-500/60 transition text-left overflow-hidden"
-                  data-testid={`person-${a.name.toLowerCase()}`}
-                  style={{ boxShadow: `0 0 40px -20px ${a.color || "#8B5CF6"}66` }}
-                >
-                  <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full opacity-30 blur-2xl group-hover:opacity-60 transition" style={{ background: a.color || "#8B5CF6" }} />
-                  <div className="relative w-24 h-24 rounded-2xl flex items-center justify-center font-display text-5xl font-black text-white mb-4" style={{ background: `linear-gradient(135deg, ${a.color || "#8B5CF6"}, #EC4899)` }}>
-                    {a.name[0]}
-                  </div>
-                  <div className="relative font-display text-2xl font-black">{a.name}</div>
-                  <div className="relative text-xs uppercase tracking-widest text-slate-400 mt-1">Administrateur</div>
-                </button>
-              ))}
-              {accounts.length === 0 && <div className="col-span-3 text-center text-slate-500 py-10">Chargement…</div>}
-            </div>
-          </div>
-        )}
-
-        {mode === "pin" && pinStep === "pin" && selected && (
-          <div className="max-w-sm mx-auto">
-            <div className="flex flex-col items-center mb-6">
-              <div className="w-24 h-24 rounded-2xl flex items-center justify-center font-display text-5xl font-black text-white mb-3" style={{ background: `linear-gradient(135deg, ${selected.color || "#8B5CF6"}, #EC4899)` }}>
-                {selected.name[0]}
-              </div>
-              <div className="font-display text-2xl font-black">Salut {selected.name}</div>
-              <div className="text-sm text-slate-400 mt-1">Entre ton code PIN pour continuer</div>
-            </div>
-            <form onSubmit={submitPin} data-testid="form-pin">
-              <div className="h-16 rounded-2xl bg-slate-950/70 border border-violet-500/25 flex items-center justify-center gap-3 font-mono-num text-4xl mb-4">
-                {[0, 1, 2, 3].map((i) => (
-                  <span key={i} className={i < pin.length ? "text-pink-300" : "text-slate-700"}>{i < pin.length ? "•" : "○"}</span>
-                ))}
-                {pin.length > 4 && Array.from({ length: pin.length - 4 }).map((_, i) => <span key={`x${i}`} className="text-pink-300">•</span>)}
-              </div>
-              {err && <div className="text-rose-300 text-xs text-center mb-2" data-testid="pin-error">{err}</div>}
-              <div className="grid grid-cols-3 gap-2">
-                {["1","2","3","4","5","6","7","8","9"].map((d) => (
-                  <button key={d} type="button" data-testid={`pin-${d}`} onClick={() => pushPin(d)} className="numpad-key">{d}</button>
-                ))}
-                <button type="button" onClick={backPin} className="numpad-key text-slate-400">⌫</button>
-                <button type="button" data-testid="pin-0" onClick={() => pushPin("0")} className="numpad-key">0</button>
-                <button type="submit" disabled={busy || pin.length < 4} data-testid="btn-pin-submit" className="numpad-key text-white border-0 disabled:opacity-40" style={{ background: `linear-gradient(135deg, ${selected.color || "#8B5CF6"}, #EC4899)` }}>OK</button>
-              </div>
-              <button
-                type="button" onClick={() => { setPinStep("person"); setPin(""); setErr(""); }}
-                className="w-full mt-3 text-xs text-slate-400 hover:text-slate-200"
-              >
-                Changer de profil
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* STORE picker (staff without store yet) */}
         {mode === "store" && (
           <div>
             <div className="text-center mb-6">

@@ -432,6 +432,7 @@ async def seed():
         {"email": "mathis@vapepos.local", "name": "Mathis", "role": "admin", "password": "vapepos", "pin": "1111", "color": "#8B5CF6"},
         {"email": "emma@vapepos.local", "name": "Emma", "role": "admin", "password": "vapepos", "pin": "2222", "color": "#EC4899"},
         {"email": "jessica@vapepos.local", "name": "Jessica", "role": "admin", "password": "vapepos", "pin": "3333", "color": "#06B6D4"},
+        {"email": "rautureau.m85@gmail.com", "name": "Rautureau", "role": "admin", "password": "Freddy030884!", "pin": None, "color": "#F97316"},
     ]
     for u in seed_users:
         existing = await db.users.find_one({"email": u["email"]})

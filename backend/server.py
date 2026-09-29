@@ -1056,6 +1056,12 @@ async def customer_register(body: CustomerRegisterIn, response: Response):
             "birth_date": body.birth_date,
         }})
         c = await db.customers.find_one({"id": existing["id"]}, {"_id": 0, "password_hash": 0})
+        await db.notifications.insert_one({
+            "id": new_id(), "target_type": "customer", "target_id": c["id"],
+            "kind": "welcome", "title": "Bienvenue chez Cha Va'Pote 💜",
+            "body": "Ton compte est prêt. Montre ton QR au vendeur pour cumuler tes points.",
+            "read": False, "at": now_iso(),
+        })
     else:
         doc = {
             "id": new_id(),
@@ -1456,12 +1462,12 @@ async def list_sales(
         q["store_id"] = store_id
     elif user.get("store_id"):
         q["store_id"] = user["store_id"]
-    return await db.sales.find(q, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return await db.sales.find(q, {"_id": 0, "_orphan_customer": 0}).sort("created_at", -1).limit(limit).to_list(limit)
 
 
 @api.get("/sales/{sid}")
 async def get_sale(sid: str, user: dict = Depends(current_user)):
-    s = await db.sales.find_one({"id": sid}, {"_id": 0})
+    s = await db.sales.find_one({"id": sid}, {"_id": 0, "_orphan_customer": 0})
     if not s:
         raise HTTPException(404, "Vente introuvable")
     if s.get("customer_id"):

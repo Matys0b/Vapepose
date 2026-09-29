@@ -214,7 +214,7 @@ export default function POS() {
             <div className="text-[10px] uppercase tracking-widest text-violet-300/70">Cha Va'Pote</div>
           </div>
           <div className="hidden md:flex items-center gap-2 ml-4">
-            {stores.length > 0 && (
+            {stores.length > 0 && !locked && (
               <select
                 value={user?.store_id || ""}
                 onChange={async (e) => {
@@ -239,11 +239,13 @@ export default function POS() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/70 border border-violet-500/15">
-            <UserIcon className="w-4 h-4 text-violet-300" />
-            <span className="text-sm">{user?.name}</span>
-            <span className="text-[10px] uppercase tracking-widest text-slate-500">{user?.role}</span>
-          </div>
+          {!locked && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/70 border border-violet-500/15">
+              <UserIcon className="w-4 h-4 text-violet-300" />
+              <span className="text-sm">{user?.name}</span>
+              <span className="text-[10px] uppercase tracking-widest text-slate-500">{user?.role}</span>
+            </div>
+          )}
           <NotificationBell />
           <Button variant="ghost" size="sm" onClick={() => setShowSession(true)} data-testid="btn-cash-session">
             <Coins className="w-4 h-4 mr-1" /> Caisse

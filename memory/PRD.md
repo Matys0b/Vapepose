@@ -3,93 +3,92 @@
 ## Original Problem Statement
 VapePOS — Caisse professionnelle pour boutiques de vape. Priorité absolue : la caisse et l'encaissement client. Mode paysage tablette. Parcours : SCAN/CHERCHER → PANIER → CLIENT FACULTATIF → PAIEMENT → TICKET → FIN. Le reste (stock, fournisseurs, compta, stats, fidélité) est secondaire, accessible depuis un menu. Multi-magasins, multi-caisses, rôles admin/responsable/vendeur.
 
-## User Choices (Feb 2026)
-- Périmètre MVP : Phases 1 + 2 + 3 (caisse + clients/fidélité/QR + stock/fournisseurs)
-- Auth : JWT email/mot de passe + PIN vendeur (quick-switch tablette)
-- Scanner : caméra tablette + support scanner USB/Bluetooth (HID clavier)
-- Ticket : HTML + impression navigateur + placeholder email (architecture prête ESC/POS)
-- Seed : catalogue vape réaliste, 2 magasins, admin/manager/2 vendeurs, quelques clients
+## User Choices (Feb 2026 — session unifiée)
+- MVP unifié Cha Va'Pote : une seule app pour clients + personnel avec routage par rôle
+- Inscription publique CLIENT avec date de naissance et 18+ bloquant
+- Rôles : CLIENT (public), SELLER, ADMIN. Pas de MANAGER dans ce MVP
+- QR opaque, révocable, sans donnée personnelle
+- Notifications in-app (cloche), pas d'email pour l'instant
+- Mode bloqué caisse avec sortie via PIN admin
+- Publication mobile Android d'abord, iOS ensuite
+- Abonnements en lecture seule (Basique/Plus/Premium/Gold)
 
-## Comptes actifs (Phase 3 pivot)
-Trois profils administrateurs — sélection par cartes au login puis PIN 4 chiffres, puis choix de magasin obligatoire à chaque session.
-- **Mathis** – PIN 1111 (violet)
-- **Emma** – PIN 2222 (rose)
-- **Jessica** – PIN 3333 (cyan)
+## Comptes actifs
+- **Mathis** – PIN 1111 (violet) – admin
+- **Emma** – PIN 2222 (rose) – admin
+- **Jessica** – PIN 3333 (cyan) – admin
+- Login staff : email + mot de passe `vapepos` ou PIN + choix magasin
 
 ## Isolation multi-magasin
-- **Pouzauges (POU)** et **Chantonnay (CHA)** : catalogues **strictement séparés** (stocks indépendants, ventes indépendantes, CA indépendants). Produit dupliqué par magasin (17 × 2 = 34 fiches).
+- **Pouzauges (POU)** et **Chantonnay (CHA)** : catalogues séparés, ventes séparées.
 - Endpoints scopés par `user.store_id` : `/products`, `/products/lookup`, `/sales`, `/dashboard/stats`.
-- Comptabilité (`/accounting/summary`, `/accounting/timeseries`, `/accounting/export.csv`) accepte `?store_id=all|<id>` — la vue est **par défaut sur tous les magasins** avec filtre.
-- Sale creation décrémente uniquement le stock du magasin en cours ; stock/bulk/adjust idem.
-- `POST /auth/pin-login` force `store_id=null` pour obliger la sélection du magasin à chaque session.
-
-## Personas
-- **Admin (owner)** – 3 comptes Mathis/Emma/Jessica
+- Comptabilité multi-store filtrable.
 
 ## Architecture
 - Backend : FastAPI + Motor (MongoDB `vapepos_database`) — tout sous `/api`
 - Frontend : React 19 + Tailwind + shadcn/ui, routing React Router
-- Auth : JWT HS256, cookies httpOnly `access_token` + fallback Bearer via localStorage
-- Multi-magasin : collection `stores` (2 : Pouzauges, Chantonnay)
-- Rôles gardés côté serveur (`require_role` dep)
+- Auth staff : JWT HS256 cookies + Bearer, /auth/login + /auth/pin-login + /auth/universal-login
+- Auth client : JWT séparé `customer_token`, /customer/register + /customer/login
+- Login unifié `/auth/universal-login` (essaie staff puis customer)
+- PWA installable, Service Worker v6, mode kiosque
 
 ## Collections MongoDB
-users · stores · categories · products · customers · sales · cash_sessions · stock_movements · suppliers · suspended_carts · loyalty_transactions · audit_logs · app_settings · counters
+users · stores · categories · products · customers · sales · cash_sessions · stock_movements · suppliers · suspended_carts · loyalty_transactions · **notifications** · audit_logs · app_settings · counters
 
-## Implémenté (25 Feb 2026)
-- **Catalogue produits hiérarchique** : catégories arborescentes (parent/enfant illimité), navigation par tuiles + breadcrumb, création de sous-catégories et de produits contextuelle, suppression sécurisée (bloquée si enfants ou produits actifs)
-- **Drag & drop réorganisation** (@dnd-kit) : glisse-dépose des tuiles catégories et des lignes produits avec poignée dédiée ; ordre persisté serveur via `/categories/reorder` et `/products/reorder`
-- **Import CSV en masse** : collage direct ou upload fichier, aperçu 8 lignes, upsert par EAN/SKU/Nom, création automatique des sous-catégories manquantes via `category_path`, rapport créés/mis-à-jour/erreurs, modèle CSV téléchargeable
-- **Import multi-magasin** : case "Appliquer aux 2 magasins" pour propager Pouzauges + Chantonnay en un import
-- **Récupération d'images automatique** : depuis l'EAN via Open Food Facts (bouton EAN dans le formulaire produit + option d'auto-fetch pendant un import CSV)
-- **Export CSV du catalogue** : télécharge le catalogue complet du magasin dans le même format que l'import (round-trip Excel possible)
-- **PWA installable** : manifest, service worker, icônes 192/256/384/512 + apple-touch-icon 180, splash iPad landscape 3 tailles + Android 1920×1080, meta iOS, thème #0F0B1E
-- **Mode kiosque** (actif automatiquement en display=standalone) : trap back-button, blocage context menu + zoom double-tap, fullscreen au 1er tap, Wake Lock pour empêcher la mise en veille
-- **Bannière d'installation** discrète (chip violet) + dialog iPad "Partager → Sur l'écran d'accueil"
-- **Bannière hors-ligne** (pill rose top) sur `navigator.onLine`
-- Auth email + PIN quick-switch, /me via cookie ou Bearer, logout
-- Users CRUD avec gardes de rôle (admin only pour créer)
-- Catalogue produits + catégories + recherche + lookup EAN
-- Écran POS paysage 65/35 : catégories, favoris, grille tactile, panier collant à droite, action bar
-- Store switcher dans le top bar POS (change de magasin sans se relogguer)
-- Panier : ajout, +/-, remise ligne, remise globale, suppression, TVA 20% TTC
-- Scanner : modal caméra + saisie manuelle + listener HID global (scanner USB/BT clavier)
-- Modal paiement : Espèces (numpad + quick 5/10/20/50/exact), CB (TPE simulé), Autre, Mixte, calcul "à rendre"
-- Ticket : ventilation, impression navigateur, placeholder email/QR
-- Sessions caisse : ouverture (fond) + fermeture (comptage) + rapport Z avec écart
-- Suspension / reprise paniers
-- Clients : recherche, création, QR token, historique, fidélité auto (1€ = 1 pt)
-- Stock : ajustement +/-, motifs (réception/casse/inventaire/transfert), mouvements
-- **Réception rapide de stock (bulk)** : scan HID + ajout multi-produits en un tap, motif configurable
-- Fournisseurs : liste + création
-- Back-office étendu : Dashboard, Ventes + remboursement, Produits, Stock, Fournisseurs, Clients, Utilisateurs
-- **Comptabilité complète** : CA TTC/HT/TVA, ventilation TVA par taux, moyens de paiement (pie chart), CA par vendeur, CA par catégorie, timeseries (jour/semaine/mois), export CSV, KPI marge brute estimée, TVA due
-- **Dépenses** : CRUD avec catégories (Loyer, Marchandises, Salaires, Fournitures, Marketing…), TVA déductible auto, mode de paiement, filtres date
-- **Statistiques** : graphiques 7j / 30j / 90j / 1 an, top catégories, répartition paiements, marge estimée
-- Audit logs sur actions sensibles
-- Seed : 2 magasins, 4 utilisateurs, 10 catégories, 17 produits vape, 2 clients
+## Implémenté — Phase 1 MVP unifié (Sept 2026)
+- **Login unifié** `/login` : toggle Client ↔ Personnel, sous-onglets Connexion/Inscription côté client, parcours PIN + magasin côté staff
+- **Inscription CLIENT publique** avec date de naissance + 18+ **bloquant serveur** + CGU obligatoires
+- **Portail client mobile** avec bottom-nav 4 tabs :
+  - Accueil : fidélité, stats, dernier achat, aperçu abonnements
+  - Mon QR : QR plein écran, régénération, astuce luminosité
+  - Achats : historique 20 dernières ventes avec détail article + mouvements de points
+  - Profil : édition prénom/nom/téléphone, changement mot de passe, lien confidentialité, suppression compte
+- **Suppression de compte définitive** : anonymise les ventes, purge loyalty/notifications, supprime le client
+- **Notifications in-app** : cloche dans header POS/Admin/Client, badge non-lu, marquage lu/tout marquer, auto-notification sur vente avec client + welcome à l'inscription
+- **Mode bloqué caisse** (kiosque renforcé) : bouton "Mode bloqué" dans header POS, masque menu Gestion + Logout, ribbon rouge, sortie par PIN admin (endpoint `/auth/verify-pin`)
+- **Page confidentialité** `/privacy` : politique complète 10 sections (responsable, données, 18+, conservation, sécurité, droits, cookies, contact)
+- **PWA v6** : Service Worker bumpé pour forcer refresh chez utilisateurs existants
+
+## Implémenté — Phases antérieures conservées
+- Catalogue produits hiérarchique avec drag & drop, import/export CSV multi-magasins, images auto EAN
+- PWA installable + mode kiosque (wake lock, fullscreen, trap back)
+- Auth email + PIN quick-switch, /me via cookie ou Bearer
+- Écran POS paysage 65/35 avec scanner HID/USB/caméra, panier, actions
+- Paiement Espèces + CB + Autre + Mixte, calcul "à rendre"
+- Ticket HTML + impression navigateur
+- Sessions caisse ouverture/fermeture avec rapport Z
+- Suspension/reprise paniers
+- Clients : recherche, création, QR token, historique, fidélité auto
+- Stock : ajustement, réception bulk, mouvements, motifs
+- Fournisseurs, comptabilité complète, dépenses, statistiques
+- Multi-magasins Pouzauges/Chantonnay avec stocks séparés
+
+## Nouveaux endpoints (session unifiée)
+- `POST /api/auth/universal-login` — essaie staff puis customer
+- `POST /api/auth/verify-pin` — vérifie PIN sans switch (kiosque unlock)
+- `PUT /api/customer/profile` — édition + changement mot de passe
+- `DELETE /api/customer/account` — suppression définitive
+- `GET /api/notifications` — auto-détecte staff vs client
+- `POST /api/notifications/mark-read` — mark all ou par ids
+- Auto-notification sur vente client + welcome inscription
 
 ## Backlog priorisé
-### P0 (à valider après démo)
-- Intégration TPE réel (SumUp / Ingenico / Verifone) sur écran paiement
-- Impression thermique ESC/POS (via passerelle locale ou app native)
-- Envoi email réel du ticket (Resend recommandé)
+### Phase 2 (à valider après MVP)
+- Rôle MANAGER intermédiaire avec matrice permissions
+- Notifications email (Resend)
+- Écran "Commandes web" côté caisse (statuts Nouvelle/En prépa/Prête/Terminée/Annulée)
+- Récompenses fidélité activables (coupons, paliers, échange)
+- Publication Play Store puis App Store
 
-### P1
-- Application mobile client (Android/iOS) : compte, QR, points, historique
-- Rapports comptables : CA, TVA, export CSV/FEC
-- Statistiques avancées (graphiques par période, vendeur, catégorie)
-- Multi-magasins : switcher réel + isolation stock/ventes par magasin
-- Commandes fournisseurs + réceptions liées au stock
-
-### P2
-- Abonnements SaaS multi-entreprises
-- Mode hors-ligne avec queue de synchronisation
-- Conformité "logiciel de caisse" France (traçabilité, intégrité, archivage) – dossier à monter avant toute annonce NF525
-- Notifications push
-- Personnalisation branding par entreprise (couleurs, logo, informations)
+### Phase 3 (plus tard)
+- Intégration commandes web depuis site Lovable
+- Paiement récurrent abonnements Basique/Plus/Premium/Gold
+- Notifications push mobiles natives
+- Conformité caisse française (intégrité, archivage, traçabilité, NF525)
+- Intégration TPE réel (SumUp/Ingenico)
+- Impression thermique ESC/POS
 
 ## Notes techniques
 - CORS_ORIGINS explicite pour cookies SameSite=None
 - Backend démarré via supervisor, hot-reload activé
-- 33/33 tests backend au vert (iteration_1)
+- Service Worker bumpé à v6 — utilisateurs existants recevront la nouvelle version au prochain refresh

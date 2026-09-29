@@ -43,8 +43,20 @@ export function CustomerAuthProvider({ children }) {
     return data;
   };
 
+  const updateProfile = async (body) => {
+    const { data } = await api.put("/customer/profile", body);
+    setCustomer((c) => c ? { ...c, ...data } : c);
+    return data;
+  };
+
+  const deleteAccount = async () => {
+    await api.delete("/customer/account");
+    localStorage.removeItem("vapepos_customer_token");
+    setCustomer(false);
+  };
+
   return (
-    <CustomerAuthCtx.Provider value={{ customer, login, register, logout, refresh, refreshQR }}>
+    <CustomerAuthCtx.Provider value={{ customer, login, register, logout, refresh, refreshQR, updateProfile, deleteAccount }}>
       {children}
     </CustomerAuthCtx.Provider>
   );

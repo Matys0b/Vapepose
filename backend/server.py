@@ -405,6 +405,8 @@ async def ensure_indexes():
     await db.products.create_index("sku")
     await db.customers.create_index("id", unique=True)
     await db.customers.create_index("qr_token", unique=True)
+    await db.notifications.create_index([("target_type", 1), ("target_id", 1), ("at", -1)])
+    await db.notifications.create_index("id", unique=True)
     await db.categories.create_index("id", unique=True)
     await db.sales.create_index("id", unique=True)
     await db.sales.create_index("created_at")
@@ -993,6 +995,8 @@ class CustomerRegisterIn(BaseModel):
     email: str
     password: str
     phone: Optional[str] = None
+    birth_date: str  # ISO date YYYY-MM-DD — required, 18+ check server-side
+    accept_terms: bool = False
 
 
 class CustomerLoginIn(BaseModel):
@@ -1000,11 +1004,45 @@ class CustomerLoginIn(BaseModel):
     password: str
 
 
+class CustomerProfileIn(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+
+class UniversalLoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class VerifyPinIn(BaseModel):
+    pin: str
+    require_role: Optional[str] = None  # e.g. "admin"
+
+
+def _age_from_birth(birth_date: str) -> int:
+    try:
+        b = datetime.fromisoformat(birth_date).date()
+    except Exception:
+        return -1
+    today = datetime.now(timezone.utc).date()
+    return today.year - b.year - ((today.month, today.day) < (b.month, b.day))
+
+
 @api.post("/customer/register")
 async def customer_register(body: CustomerRegisterIn, response: Response):
     email = body.email.lower().strip()
     if len(body.password) < 6:
         raise HTTPException(400, "Mot de passe trop court (6 caractères minimum)")
+    if not body.accept_terms:
+        raise HTTPException(400, "Vous devez accepter les conditions d'utilisation")
+    age = _age_from_birth(body.birth_date)
+    if age < 0:
+        raise HTTPException(400, "Date de naissance invalide")
+    if age < 18:
+        raise HTTPException(403, "L'inscription est réservée aux personnes majeures (18 ans et plus)")
     existing = await db.customers.find_one({"email": email})
     if existing and existing.get("password_hash"):
         raise HTTPException(400, "Un compte existe déjà avec cet email")
@@ -1015,6 +1053,7 @@ async def customer_register(body: CustomerRegisterIn, response: Response):
             "first_name": body.first_name or existing.get("first_name"),
             "last_name": body.last_name or existing.get("last_name", ""),
             "phone": body.phone or existing.get("phone"),
+            "birth_date": body.birth_date,
         }})
         c = await db.customers.find_one({"id": existing["id"]}, {"_id": 0, "password_hash": 0})
     else:
@@ -1024,6 +1063,7 @@ async def customer_register(body: CustomerRegisterIn, response: Response):
             "last_name": body.last_name or "",
             "email": email,
             "phone": body.phone,
+            "birth_date": body.birth_date,
             "password_hash": hash_password(body.password),
             "qr_token": secrets.token_urlsafe(24),
             "loyalty_points": 0,
@@ -1031,9 +1071,16 @@ async def customer_register(body: CustomerRegisterIn, response: Response):
         }
         await db.customers.insert_one(doc)
         c = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+        # Welcome notification
+        await db.notifications.insert_one({
+            "id": new_id(), "target_type": "customer", "target_id": c["id"],
+            "kind": "welcome", "title": "Bienvenue chez Cha Va'Pote 💜",
+            "body": "Ton compte est prêt. Montre ton QR au vendeur pour gagner tes premiers points.",
+            "read": False, "at": now_iso(),
+        })
     token = make_customer_token(c["id"])
     set_customer_cookie(response, token)
-    return {**c, "token": token}
+    return {**c, "token": token, "role": "customer"}
 
 
 @api.post("/customer/login")
@@ -1044,7 +1091,41 @@ async def customer_login(body: CustomerLoginIn, response: Response):
     token = make_customer_token(c["id"])
     set_customer_cookie(response, token)
     c.pop("password_hash", None); c.pop("_id", None)
-    return {**c, "token": token}
+    return {**c, "token": token, "role": "customer"}
+
+
+@api.post("/auth/universal-login")
+async def universal_login(body: UniversalLoginIn, response: Response):
+    """Single entry-point: tries staff first, then customer.
+    Returns { type: 'staff'|'customer', role, ...user, token }."""
+    email = body.email.lower().strip()
+    u = await db.users.find_one({"email": email})
+    if u and verify_password(body.password, u["password_hash"]):
+        token = make_token(u["id"], u["role"])
+        set_auth_cookie(response, token)
+        return {
+            "type": "staff", "id": u["id"], "email": u["email"], "name": u["name"],
+            "role": u["role"], "store_id": u.get("store_id"),
+            "color": u.get("color"), "token": token,
+        }
+    c = await db.customers.find_one({"email": email})
+    if c and c.get("password_hash") and verify_password(body.password, c["password_hash"]):
+        token = make_customer_token(c["id"])
+        set_customer_cookie(response, token)
+        c.pop("password_hash", None); c.pop("_id", None)
+        return {"type": "customer", "role": "customer", "token": token, **c}
+    raise HTTPException(401, "Email ou mot de passe invalide")
+
+
+@api.post("/auth/verify-pin")
+async def verify_pin(body: VerifyPinIn):
+    """Verify a staff PIN without switching session — used to unlock kiosk mode."""
+    async for u in db.users.find({"pin_hash": {"$ne": None}}):
+        if u.get("pin_hash") and verify_password(body.pin, u["pin_hash"]):
+            if body.require_role and u["role"] != body.require_role:
+                raise HTTPException(403, f"Rôle {body.require_role} requis")
+            return {"ok": True, "user_id": u["id"], "name": u["name"], "role": u["role"]}
+    raise HTTPException(401, "PIN incorrect")
 
 
 @api.post("/customer/logout")
@@ -1070,6 +1151,79 @@ async def customer_qr_refresh(c: dict = Depends(current_customer)):
     new_token = secrets.token_urlsafe(24)
     await db.customers.update_one({"id": c["id"]}, {"$set": {"qr_token": new_token}})
     return {"qr_token": new_token}
+
+
+@api.put("/customer/profile")
+async def customer_profile_update(body: CustomerProfileIn, c: dict = Depends(current_customer)):
+    updates: dict = {}
+    if body.first_name is not None:
+        updates["first_name"] = body.first_name.strip()
+    if body.last_name is not None:
+        updates["last_name"] = body.last_name.strip()
+    if body.phone is not None:
+        updates["phone"] = body.phone.strip() or None
+    if body.new_password:
+        if len(body.new_password) < 6:
+            raise HTTPException(400, "Mot de passe trop court")
+        current = await db.customers.find_one({"id": c["id"]})
+        if not current or not verify_password(body.current_password or "", current.get("password_hash", "")):
+            raise HTTPException(400, "Mot de passe actuel incorrect")
+        updates["password_hash"] = hash_password(body.new_password)
+    if updates:
+        await db.customers.update_one({"id": c["id"]}, {"$set": updates})
+    fresh = await db.customers.find_one({"id": c["id"]}, {"_id": 0, "password_hash": 0})
+    return fresh
+
+
+@api.delete("/customer/account")
+async def customer_delete_account(response: Response, c: dict = Depends(current_customer)):
+    """Definitively remove personal data. Keeps sale rows for legal accounting but wipes customer_id link."""
+    cid = c["id"]
+    await db.sales.update_many({"customer_id": cid}, {"$set": {"customer_id": None, "_orphan_customer": True}})
+    await db.loyalty_transactions.delete_many({"customer_id": cid})
+    await db.notifications.delete_many({"target_type": "customer", "target_id": cid})
+    await db.customers.delete_one({"id": cid})
+    response.delete_cookie("customer_token", path="/")
+    return {"ok": True}
+
+
+# --- Notifications -------------------------------------------------------
+@api.get("/notifications")
+async def list_notifications(request: Request, limit: int = 30):
+    """Returns notifications for current auth context (staff OR customer)."""
+    # Try staff first
+    try:
+        user = await current_user(request)
+        q = {
+            "$or": [
+                {"target_type": "staff", "target_id": user["id"]},
+                {"target_type": "staff", "target_id": None},
+            ]
+        }
+        items = await db.notifications.find(q, {"_id": 0}).sort("at", -1).limit(limit).to_list(limit)
+        unread = await db.notifications.count_documents({**q, "read": False})
+        return {"items": items, "unread": unread, "ctx": "staff"}
+    except HTTPException:
+        pass
+    c = await current_customer(request)
+    q = {"target_type": "customer", "target_id": c["id"]}
+    items = await db.notifications.find(q, {"_id": 0}).sort("at", -1).limit(limit).to_list(limit)
+    unread = await db.notifications.count_documents({**q, "read": False})
+    return {"items": items, "unread": unread, "ctx": "customer"}
+
+
+@api.post("/notifications/mark-read")
+async def mark_notifications_read(request: Request, ids: Optional[List[str]] = None):
+    try:
+        user = await current_user(request)
+        q = {"$or": [{"target_type": "staff", "target_id": user["id"]}, {"target_type": "staff", "target_id": None}]}
+    except HTTPException:
+        c = await current_customer(request)
+        q = {"target_type": "customer", "target_id": c["id"]}
+    if ids:
+        q["id"] = {"$in": ids}
+    r = await db.notifications.update_many(q, {"$set": {"read": True}})
+    return {"updated": r.modified_count}
 
 
 @api.get("/customers")
@@ -1235,6 +1389,14 @@ async def create_sale(body: SaleIn, user: dict = Depends(current_user)):
                 "id": new_id(), "customer_id": body.customer_id, "delta": loyalty_added,
                 "reason": "sale", "sale_id": sale_id, "at": now_iso(),
             })
+        # Notify customer of the sale
+        await db.notifications.insert_one({
+            "id": new_id(), "target_type": "customer", "target_id": body.customer_id,
+            "kind": "sale", "title": f"Merci pour ton passage · {total:.2f} €".replace(".", ","),
+            "body": (f"+{loyalty_added} points de fidélité gagnés." if loyalty_added else "Retrouve ton ticket dans l'app."),
+            "meta": {"sale_id": sale_id, "loyalty_added": loyalty_added, "total": total},
+            "read": False, "at": now_iso(),
+        })
 
     cash_total = sum(p.amount for p in body.payments if p.method == "cash")
     card_total = sum(p.amount for p in body.payments if p.method == "card")

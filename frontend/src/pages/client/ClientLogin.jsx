@@ -15,6 +15,9 @@ export default function ClientLogin() {
 
   if (customer === null) return <div className="p-6 text-center text-slate-400">Chargement…</div>;
   if (customer) return <Navigate to="/client/me" replace />;
+  // Redirect to unified login (kept for backward-compat direct link)
+  return <Navigate to="/login" replace />;
+  // eslint-disable-next-line no-unreachable
 
   const submit = async (e) => {
     e.preventDefault();

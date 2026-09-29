@@ -1,5 +1,5 @@
 /* VapePOS Service Worker — app-shell cache, minimal offline */
-const VERSION = "vapepos-v4";
+const VERSION = "vapepos-v6";
 const APP_SHELL = [
   "/",
   "/manifest.json",
@@ -25,11 +25,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
-  // Never cache API calls
   if (url.pathname.startsWith("/api/")) return;
-  // Only handle GET
   if (req.method !== "GET") return;
-  // Network-first for navigations, cache fallback
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req).then((res) => {
@@ -40,7 +37,6 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
-  // Cache-first for static assets (icons, JS, CSS)
   if (["style", "script", "image", "font"].includes(req.destination)) {
     event.respondWith(
       caches.match(req).then((c) => c || fetch(req).then((res) => {

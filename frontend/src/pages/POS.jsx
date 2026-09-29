@@ -16,6 +16,8 @@ import BarcodeScannerModal from "../components/BarcodeScannerModal";
 import CustomerLinkModal from "../components/CustomerLinkModal";
 import SuspendedCartsDrawer from "../components/SuspendedCartsDrawer";
 import ReceiptModal from "../components/ReceiptModal";
+import NotificationBell from "../components/NotificationBell";
+import { KioskLockToggle, KioskUnlockDialog, useKioskLock } from "../components/KioskLock";
 
 const fmt = (n) => `${(Math.round(n * 100) / 100).toFixed(2).replace(".", ",")} €`;
 
@@ -38,6 +40,8 @@ export default function POS() {
   const [showSuspended, setShowSuspended] = useState(false);
   const [lastSale, setLastSale] = useState(null);
   const [suspendedCount, setSuspendedCount] = useState(0);
+  const [showUnlock, setShowUnlock] = useState(false);
+  const { locked, lock, unlock } = useKioskLock();
   const scanBufferRef = useRef({ buf: "", ts: 0 });
 
   const loadProducts = useCallback(async () => {
@@ -240,17 +244,21 @@ export default function POS() {
             <span className="text-sm">{user?.name}</span>
             <span className="text-[10px] uppercase tracking-widest text-slate-500">{user?.role}</span>
           </div>
+          <NotificationBell />
           <Button variant="ghost" size="sm" onClick={() => setShowSession(true)} data-testid="btn-cash-session">
             <Coins className="w-4 h-4 mr-1" /> Caisse
           </Button>
-          {(user?.role === "admin" || user?.role === "manager") && (
+          {!locked && (user?.role === "admin" || user?.role === "manager") && (
             <Button variant="ghost" size="sm" onClick={() => nav("/admin")} data-testid="btn-backoffice">
               <LayoutDashboard className="w-4 h-4 mr-1" /> Gestion
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={logout} data-testid="btn-logout">
-            <LogOut className="w-4 h-4" />
-          </Button>
+          <KioskLockToggle locked={locked} onLock={lock} onUnlockAttempt={() => setShowUnlock(true)} />
+          {!locked && (
+            <Button variant="ghost" size="sm" onClick={logout} data-testid="btn-logout">
+              <LogOut className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -493,6 +501,12 @@ export default function POS() {
       {lastSale && (
         <ReceiptModal sale={lastSale} onClose={() => setLastSale(null)} />
       )}
+      {locked && (
+        <div className="fixed top-16 right-4 z-30 rounded-xl px-3 py-1.5 bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-100 text-[11px] font-semibold flex items-center gap-2" data-testid="kiosk-locked-ribbon">
+          Mode bloqué actif — sortie par PIN admin
+        </div>
+      )}
+      <KioskUnlockDialog open={showUnlock} onClose={() => setShowUnlock(false)} onSuccess={() => { unlock(); setShowUnlock(false); }} />
     </div>
   );
 }

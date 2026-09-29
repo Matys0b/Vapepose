@@ -17,9 +17,13 @@ import UsersPage from "./pages/Users";
 import Accounting from "./pages/Accounting";
 import Expenses from "./pages/Expenses";
 import Statistics from "./pages/Statistics";
+import Privacy from "./pages/Privacy";
 import ClientLayout from "./pages/client/ClientLayout";
 import ClientLogin from "./pages/client/ClientLogin";
 import ClientHome from "./pages/client/ClientHome";
+import ClientQR from "./pages/client/ClientQR";
+import ClientOrders from "./pages/client/ClientOrders";
+import ClientProfile from "./pages/client/ClientProfile";
 import "./App.css";
 
 function Protected({ children, roles }) {
@@ -49,10 +53,14 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingRedirect />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/privacy" element={<Privacy />} />
           <Route path="/client" element={<ClientLayout />}>
             <Route index element={<Navigate to="me" replace />} />
             <Route path="login" element={<ClientLogin />} />
             <Route path="me" element={<ClientHome />} />
+            <Route path="me/qr" element={<ClientQR />} />
+            <Route path="me/achats" element={<ClientOrders />} />
+            <Route path="me/profil" element={<ClientProfile />} />
           </Route>
           <Route path="/pos" element={<Protected><POS /></Protected>} />
           <Route path="/admin" element={<Protected roles={["admin", "manager"]}><BackOfficeLayout /></Protected>}>

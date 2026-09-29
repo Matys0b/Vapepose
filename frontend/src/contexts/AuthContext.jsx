@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { api, formatApiError } from "../lib/api";
+import { api, formatApiError, setStaffToken, clearStaffToken } from "../lib/api";
 
 const AuthCtx = createContext(null);
 
@@ -22,7 +22,7 @@ export function AuthProvider({ children }) {
     setError("");
     try {
       const { data } = await api.post("/auth/login", { email, password });
-      if (data.token) localStorage.setItem("vapepos_token", data.token);
+      if (data.token) setStaffToken(data.token);
       setUser(data);
       return data;
     } catch (e) {
@@ -36,11 +36,11 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.post("/auth/universal-login", { email, password });
       if (data.type === "staff" && data.token) {
-        localStorage.setItem("vapepos_token", data.token);
+        setStaffToken(data.token);
         setUser(data);
       } else if (data.type === "customer" && data.token) {
+        // Customer token handled by CustomerAuthContext (localStorage)
         localStorage.setItem("vapepos_customer_token", data.token);
-        // Don't set staff user for customers
       }
       return data;
     } catch (e) {
@@ -53,7 +53,7 @@ export function AuthProvider({ children }) {
     setError("");
     try {
       const { data } = await api.post("/auth/pin-login", { pin });
-      if (data.token) localStorage.setItem("vapepos_token", data.token);
+      if (data.token) setStaffToken(data.token);
       setUser(data);
       return data;
     } catch (e) {
@@ -64,7 +64,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try { await api.post("/auth/logout"); } catch (e) { void e; }
-    localStorage.removeItem("vapepos_token");
+    clearStaffToken();
     setUser(false);
   };
 

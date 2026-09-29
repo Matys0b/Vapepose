@@ -5,6 +5,7 @@ import { useCustomerAuth, CustomerAuthProvider } from "../contexts/CustomerAuthC
 import { api, formatApiError } from "../lib/api";
 import { toast } from "sonner";
 import { ArrowLeft, Store, Zap, MapPin, User, Mail, Lock, Phone, Calendar, ArrowRight } from "lucide-react";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function LoginWrapper() {
   return (
@@ -114,6 +115,9 @@ function LoginInner() {
               <ArrowLeft className="w-4 h-4" /> Retour
             </button>
           )}
+          <div className={mode === "login" ? "ml-auto" : "ml-2"}>
+            <ThemeToggle />
+          </div>
         </div>
 
         {mode === "login" && (

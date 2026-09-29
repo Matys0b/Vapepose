@@ -4,7 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ============================================================
+   THEME VARIABLES
+   ============================================================ */
+:root, html[data-theme="dark"] {
     --background: 258 55% 8%;
     --foreground: 210 40% 98%;
     --card: 258 45% 14%;
@@ -25,26 +28,80 @@
     --input: 258 30% 22%;
     --ring: 259 89% 65%;
     --radius: 0.75rem;
+
+    /* App semantic surfaces */
+    --app-bg: #0f0b1e;
+    --app-surface: rgba(15, 23, 42, 0.7);       /* slate-900/70 */
+    --app-surface-2: rgba(2, 6, 23, 0.6);       /* slate-950/60 */
+    --app-surface-solid: #0f172a;                /* slate-900 */
+    --app-text: #f8fafc;
+    --app-text-muted: #94a3b8;
+    --app-text-subtle: #64748b;
+    --app-border: rgba(139, 92, 246, 0.2);
+    --app-shadow: 0 10px 30px -12px rgba(139, 92, 246, 0.35);
 }
 
+html[data-theme="light"] {
+    --background: 260 40% 98%;
+    --foreground: 258 40% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 258 40% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 258 40% 14%;
+    --primary: 259 82% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 260 30% 94%;
+    --secondary-foreground: 258 40% 14%;
+    --muted: 260 30% 94%;
+    --muted-foreground: 220 12% 40%;
+    --accent: 322 85% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 350 89% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 260 20% 88%;
+    --input: 260 20% 92%;
+    --ring: 259 82% 55%;
+
+    --app-bg: #faf7ff;
+    --app-surface: #ffffff;
+    --app-surface-2: #f7f4ff;
+    --app-surface-solid: #ffffff;
+    --app-text: #0f172a;
+    --app-text-muted: #475569;
+    --app-text-subtle: #64748b;
+    --app-border: rgba(139, 92, 246, 0.25);
+    --app-shadow: 0 10px 30px -14px rgba(139, 92, 246, 0.25);
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
 html,
 body,
 #root {
     height: 100%;
-    background: #0f0b1e;
-    color: #f8fafc;
+    background: var(--app-bg);
+    color: var(--app-text);
     font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior: none;
+    transition: background-color 200ms ease, color 200ms ease;
 }
 
 body {
     background:
         radial-gradient(1200px 800px at 10% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
         radial-gradient(900px 600px at 95% 110%, rgba(236, 72, 153, 0.14), transparent 60%),
-        #0f0b1e;
+        var(--app-bg);
     min-height: 100vh;
+}
+
+html[data-theme="light"] body {
+    background:
+        radial-gradient(1200px 800px at 10% -10%, rgba(139, 92, 246, 0.10), transparent 60%),
+        radial-gradient(900px 600px at 95% 110%, rgba(236, 72, 153, 0.08), transparent 60%),
+        var(--app-bg);
 }
 
 .font-display {
@@ -89,6 +146,7 @@ body {
     background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
     mix-blend-mode: overlay;
 }
+html[data-theme="light"] .grain::before { opacity: 0.03; }
 
 .tile-glow:hover {
     box-shadow: 0 0 0 1px rgba(236, 72, 153, 0.35), 0 12px 30px -12px rgba(139, 92, 246, 0.6);
@@ -105,7 +163,7 @@ body {
     font-size: 1.5rem;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(139, 92, 246, 0.25);
-    color: #f8fafc;
+    color: var(--app-text);
     border-radius: 14px;
     transition: transform 80ms ease, background 120ms ease;
 }
@@ -114,4 +172,179 @@ body {
 }
 .numpad-key:active {
     transform: scale(0.97);
+}
+html[data-theme="light"] .numpad-key {
+    background: #ffffff;
+    color: #1e1b4b;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+html[data-theme="light"] .numpad-key:hover {
+    background: #f4f0ff;
+}
+
+/* ============================================================
+   LIGHT MODE — surface overrides for tailwind arbitrary colors
+   Applies globally without rewriting every component.
+   ============================================================ */
+html[data-theme="light"] .bg-\[\#0f0b1e\],
+html[data-theme="light"] .bg-\[\#0f0b1e\]\/70,
+html[data-theme="light"] .bg-\[\#0f0b1e\]\/85 {
+    background-color: rgba(250, 247, 255, 0.85) !important;
+    color: var(--app-text);
+}
+
+html[data-theme="light"] .bg-slate-950,
+html[data-theme="light"] .bg-slate-950\/30,
+html[data-theme="light"] .bg-slate-950\/40,
+html[data-theme="light"] .bg-slate-950\/50,
+html[data-theme="light"] .bg-slate-950\/60,
+html[data-theme="light"] .bg-slate-950\/70 {
+    background-color: #ffffff !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+html[data-theme="light"] .bg-slate-900,
+html[data-theme="light"] .bg-slate-900\/50,
+html[data-theme="light"] .bg-slate-900\/60,
+html[data-theme="light"] .bg-slate-900\/70 {
+    background-color: #ffffff !important;
+    box-shadow: 0 1px 3px rgba(139, 92, 246, 0.08);
+}
+
+html[data-theme="light"] .bg-slate-800,
+html[data-theme="light"] .bg-slate-800\/50,
+html[data-theme="light"] .bg-slate-800\/60 {
+    background-color: #f5f2ff !important;
+}
+
+html[data-theme="light"] .hover\:bg-slate-800:hover,
+html[data-theme="light"] .hover\:bg-slate-800\/60:hover,
+html[data-theme="light"] .hover\:bg-slate-900:hover,
+html[data-theme="light"] .hover\:bg-slate-900\/60:hover {
+    background-color: #eee6ff !important;
+}
+
+/* Text overrides for light mode */
+html[data-theme="light"] .text-slate-100,
+html[data-theme="light"] .text-slate-200 {
+    color: #0f172a !important;
+}
+html[data-theme="light"] .text-slate-300 {
+    color: #334155 !important;
+}
+html[data-theme="light"] .text-slate-400 {
+    color: #64748b !important;
+}
+html[data-theme="light"] .text-slate-500 {
+    color: #94a3b8 !important;
+}
+html[data-theme="light"] .text-slate-600 {
+    color: #a1a1aa !important;
+}
+html[data-theme="light"] .text-slate-700 {
+    color: #cbd5e1 !important;
+}
+
+/* Purple accents keep vibrant in light mode */
+html[data-theme="light"] .text-violet-200,
+html[data-theme="light"] .text-violet-200\/80,
+html[data-theme="light"] .text-violet-300,
+html[data-theme="light"] .text-violet-300\/70,
+html[data-theme="light"] .text-violet-300\/80 {
+    color: #6d28d9 !important;
+}
+html[data-theme="light"] .text-fuchsia-200,
+html[data-theme="light"] .text-fuchsia-300,
+html[data-theme="light"] .text-fuchsia-400 {
+    color: #c026d3 !important;
+}
+html[data-theme="light"] .text-pink-200,
+html[data-theme="light"] .text-pink-300 {
+    color: #db2777 !important;
+}
+html[data-theme="light"] .text-emerald-300,
+html[data-theme="light"] .text-emerald-400 {
+    color: #059669 !important;
+}
+html[data-theme="light"] .text-rose-200,
+html[data-theme="light"] .text-rose-300 {
+    color: #e11d48 !important;
+}
+html[data-theme="light"] .text-amber-200,
+html[data-theme="light"] .text-amber-300 {
+    color: #d97706 !important;
+}
+
+/* Borders for light mode */
+html[data-theme="light"] .border-violet-500\/10,
+html[data-theme="light"] .border-violet-500\/15,
+html[data-theme="light"] .border-violet-500\/20,
+html[data-theme="light"] .border-violet-500\/25,
+html[data-theme="light"] .border-violet-500\/30 {
+    border-color: rgba(139, 92, 246, 0.22) !important;
+}
+html[data-theme="light"] .border-fuchsia-500\/30,
+html[data-theme="light"] .border-fuchsia-500\/40 {
+    border-color: rgba(217, 70, 239, 0.35) !important;
+}
+html[data-theme="light"] .border-slate-700,
+html[data-theme="light"] .border-slate-600 {
+    border-color: #e2d9ff !important;
+}
+
+/* Muted/tinted background zones */
+html[data-theme="light"] .bg-fuchsia-500\/5,
+html[data-theme="light"] .bg-fuchsia-500\/10 {
+    background-color: #fdf2ff !important;
+}
+html[data-theme="light"] .bg-violet-500\/10,
+html[data-theme="light"] .bg-violet-500\/20 {
+    background-color: #f2edff !important;
+}
+html[data-theme="light"] .bg-amber-500\/10 {
+    background-color: #fff8ec !important;
+}
+html[data-theme="light"] .bg-emerald-500\/10 {
+    background-color: #ecfdf5 !important;
+}
+html[data-theme="light"] .bg-rose-500\/10,
+html[data-theme="light"] .bg-rose-950\/30 {
+    background-color: #fff1f2 !important;
+    color: #7f1d1d !important;
+}
+
+/* Backdrop-blur surfaces stay white */
+html[data-theme="light"] .backdrop-blur,
+html[data-theme="light"] .backdrop-blur-md,
+html[data-theme="light"] .backdrop-blur-xl {
+    backdrop-filter: none !important;
+}
+
+/* Gradients in badges — keep vibrant, adjust text if needed */
+html[data-theme="light"] .from-slate-900,
+html[data-theme="light"] .via-slate-900,
+html[data-theme="light"] .to-slate-900 {
+    /* keep colored gradients intact */
+}
+
+/* Scrollbar for light */
+html[data-theme="light"] .scroll-thin::-webkit-scrollbar-thumb {
+    background: rgba(139, 92, 246, 0.35);
+}
+
+/* Inputs: make sure text is readable in light mode when component uses transparent bg */
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] textarea {
+    color: var(--app-text);
+}
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder {
+    color: #94a3b8;
+}
+
+/* Emerald gradient buttons keep contrast */
+html[data-theme="light"] .from-emerald-500.to-teal-500,
+html[data-theme="light"] .from-emerald-500 {
+    /* keep gradient background; adjust text below if needed */
 }

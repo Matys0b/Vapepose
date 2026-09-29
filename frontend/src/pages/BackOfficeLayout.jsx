@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 import {
   LayoutDashboard, Package, Receipt, Users, Boxes, Truck, UserCog, ArrowLeft, LogOut, Zap,
   Calculator, BarChart3, Wallet
@@ -63,6 +64,7 @@ export default function BackOfficeLayout() {
       <main className="flex-1 overflow-auto scroll-thin">
         <div className="sticky top-0 z-20 h-14 px-6 flex items-center justify-end gap-3 border-b border-violet-500/15 bg-[#0f0b1e]/70 backdrop-blur">
           <NotificationBell />
+          <ThemeToggle />
         </div>
         <div className="p-6">
           <Outlet />

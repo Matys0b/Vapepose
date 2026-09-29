@@ -17,6 +17,7 @@ import CustomerLinkModal from "../components/CustomerLinkModal";
 import SuspendedCartsDrawer from "../components/SuspendedCartsDrawer";
 import ReceiptModal from "../components/ReceiptModal";
 import NotificationBell from "../components/NotificationBell";
+import ThemeToggle from "../components/ThemeToggle";
 import { KioskLockToggle, KioskUnlockDialog, useKioskLock } from "../components/KioskLock";
 
 const fmt = (n) => `${(Math.round(n * 100) / 100).toFixed(2).replace(".", ",")} €`;
@@ -247,6 +248,7 @@ export default function POS() {
             </div>
           )}
           <NotificationBell />
+          <ThemeToggle />
           <Button variant="ghost" size="sm" onClick={() => setShowSession(true)} data-testid="btn-cash-session">
             <Coins className="w-4 h-4 mr-1" /> Caisse
           </Button>

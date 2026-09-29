@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { CustomerAuthProvider, useCustomerAuth } from "../../contexts/CustomerAuthContext";
 import { Home, QrCode, ShoppingBag, User, Zap } from "lucide-react";
 import NotificationBell from "../../components/NotificationBell";
+import ThemeToggle from "../../components/ThemeToggle";
 
 export default function ClientLayout() {
   return (
@@ -36,6 +37,7 @@ function Shell() {
               </div>
             </div>
             <NotificationBell />
+            <ThemeToggle />
           </div>
         </header>
       )}

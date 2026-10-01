@@ -319,6 +319,7 @@ class SaleIn(BaseModel):
     store_id: Optional[str] = None
     register_id: Optional[str] = None
     note: Optional[str] = None
+    applied_reward_id: Optional[str] = None
 
 
 class CashOpenIn(BaseModel):
@@ -1062,6 +1063,7 @@ class CustomerProfileIn(BaseModel):
     phone: Optional[str] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = None
+    preferred_store_id: Optional[str] = None
 
 
 class UniversalLoginIn(BaseModel):
@@ -1220,6 +1222,12 @@ async def customer_profile_update(body: CustomerProfileIn, c: dict = Depends(cur
         updates["last_name"] = body.last_name.strip()
     if body.phone is not None:
         updates["phone"] = body.phone.strip() or None
+    if body.preferred_store_id is not None:
+        if body.preferred_store_id:
+            exists = await db.stores.find_one({"id": body.preferred_store_id})
+            if not exists:
+                raise HTTPException(400, "Magasin inconnu")
+        updates["preferred_store_id"] = body.preferred_store_id or None
     if body.new_password:
         if len(body.new_password) < 6:
             raise HTTPException(400, "Mot de passe trop court")
@@ -1436,23 +1444,63 @@ async def create_sale(body: SaleIn, user: dict = Depends(current_user)):
             "user_id": user["id"],
         })
 
-    # loyalty
+    # loyalty — 2 points per euro (configurable)
     loyalty_added = 0
+    reward_applied = None
     if body.customer_id:
-        settings = await db.app_settings.find_one({"key": "loyalty"}) or {"euro_per_point": 1.0}
-        loyalty_added = int(total // settings.get("euro_per_point", 1.0))
+        settings = await db.app_settings.find_one({"key": "loyalty"}) or {"points_per_euro": 2.0}
+        rate = settings.get("points_per_euro", 2.0)
+        loyalty_added = int(total * rate)
+        new_balance = 0
         if loyalty_added > 0:
-            await db.customers.update_one({"id": body.customer_id}, {"$inc": {"loyalty_points": loyalty_added}})
+            cust = await db.customers.find_one_and_update(
+                {"id": body.customer_id},
+                {"$inc": {"loyalty_points": loyalty_added}},
+                return_document=True,
+            )
+            new_balance = (cust or {}).get("loyalty_points", 0)
             await db.loyalty_transactions.insert_one({
                 "id": new_id(), "customer_id": body.customer_id, "delta": loyalty_added,
                 "reason": "sale", "sale_id": sale_id, "at": now_iso(),
             })
+        # Unlock any reward templates whose threshold is now reached
+        async for tpl in db.reward_templates.find({"active": True}):
+            if new_balance >= tpl.get("points_threshold", 0):
+                already = await db.rewards.find_one({
+                    "customer_id": body.customer_id,
+                    "template_id": tpl["id"],
+                    "status": {"$in": ["available", "used"]},
+                })
+                if already:
+                    continue
+                exp_days = int(tpl.get("expires_days", 30))
+                await db.rewards.insert_one({
+                    "id": new_id(), "customer_id": body.customer_id,
+                    "template_id": tpl["id"], "name": tpl["name"],
+                    "kind": tpl["kind"], "value": tpl.get("value", 0),
+                    "status": "available",
+                    "unlocked_at": now_iso(),
+                    "expires_at": (datetime.now(timezone.UTC) + timedelta(days=exp_days)).isoformat() if exp_days else None,
+                })
+                await db.notifications.insert_one({
+                    "id": new_id(), "target_type": "customer", "target_id": body.customer_id,
+                    "kind": "reward_unlocked", "title": f"🎉 Nouvelle récompense : {tpl['name']}",
+                    "body": "Elle sera proposée automatiquement à ton prochain passage en caisse.",
+                    "meta": {"reward_name": tpl["name"]}, "read": False, "at": now_iso(),
+                })
+        # Mark the reward actually applied on this sale as used
+        if body.applied_reward_id:
+            await db.rewards.update_one(
+                {"id": body.applied_reward_id, "customer_id": body.customer_id, "status": "available"},
+                {"$set": {"status": "used", "used_at": now_iso(), "sale_id": sale_id}},
+            )
+            reward_applied = body.applied_reward_id
         # Notify customer of the sale
         await db.notifications.insert_one({
             "id": new_id(), "target_type": "customer", "target_id": body.customer_id,
             "kind": "sale", "title": f"Merci pour ton passage · {total:.2f} €".replace(".", ","),
             "body": (f"+{loyalty_added} points de fidélité gagnés." if loyalty_added else "Retrouve ton ticket dans l'app."),
-            "meta": {"sale_id": sale_id, "loyalty_added": loyalty_added, "total": total},
+            "meta": {"sale_id": sale_id, "loyalty_added": loyalty_added, "total": total, "reward_applied": reward_applied},
             "read": False, "at": now_iso(),
         })
 
@@ -1932,6 +1980,342 @@ async def switch_store(body: StoreSwitchIn, user: dict = Depends(current_user)):
 @api.get("/")
 async def root():
     return {"service": "VapePOS API", "ok": True}
+
+
+# === V2 CLIENT — rewards, messaging, events, news, stats =================
+class RewardTemplateIn(BaseModel):
+    name: str
+    points_threshold: int
+    kind: Literal["percent", "amount", "free_product", "custom"]
+    value: float = 0.0
+    product_id: Optional[str] = None
+    expires_days: int = 30
+    active: bool = True
+
+
+@api.get("/admin/reward-templates")
+async def list_reward_tpls(_: dict = Depends(require_role("admin", "manager"))):
+    return await db.reward_templates.find({}, {"_id": 0}).sort("points_threshold", 1).to_list(500)
+
+
+@api.post("/admin/reward-templates")
+async def create_reward_tpl(body: RewardTemplateIn, _: dict = Depends(require_role("admin", "manager"))):
+    doc = {"id": new_id(), **body.model_dump(), "created_at": now_iso()}
+    await db.reward_templates.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/reward-templates/{rid}")
+async def update_reward_tpl(rid: str, body: RewardTemplateIn, _: dict = Depends(require_role("admin", "manager"))):
+    await db.reward_templates.update_one({"id": rid}, {"$set": body.model_dump()})
+    return await db.reward_templates.find_one({"id": rid}, {"_id": 0})
+
+
+@api.delete("/admin/reward-templates/{rid}")
+async def delete_reward_tpl(rid: str, _: dict = Depends(require_role("admin"))):
+    await db.reward_templates.delete_one({"id": rid})
+    return {"ok": True}
+
+
+@api.get("/customer/rewards")
+async def customer_rewards(c: dict = Depends(current_customer)):
+    items = await db.rewards.find({"customer_id": c["id"]}, {"_id": 0}).sort("unlocked_at", -1).to_list(100)
+    # Mark expired
+    now = datetime.now(timezone.utc).isoformat()
+    for r in items:
+        if r.get("status") == "available" and r.get("expires_at") and r["expires_at"] < now:
+            r["status"] = "expired"
+    return items
+
+
+@api.get("/customers/{cid}/available-rewards")
+async def customer_available_rewards_for_pos(cid: str, _: dict = Depends(current_user)):
+    """Called from POS right after scanning a customer QR."""
+    now = datetime.now(timezone.utc).isoformat()
+    items = await db.rewards.find(
+        {"customer_id": cid, "status": "available", "$or": [{"expires_at": None}, {"expires_at": {"$gte": now}}]},
+        {"_id": 0}
+    ).sort("unlocked_at", 1).to_list(20)
+    return items
+
+
+# --- Messaging ------------------------------------------------------------
+class MessageIn(BaseModel):
+    conversation_id: Optional[str] = None
+    body: str
+
+
+async def _resolve_or_create_conversation(customer_id: str) -> dict:
+    cust = await db.customers.find_one({"id": customer_id})
+    if not cust:
+        raise HTTPException(404, "Client introuvable")
+    conv = await db.conversations.find_one({"customer_id": customer_id, "status": "open"})
+    if conv:
+        return conv
+    store_id = cust.get("preferred_store_id") or None
+    doc = {
+        "id": new_id(), "customer_id": customer_id, "store_id": store_id,
+        "status": "open", "unread_customer": 0, "unread_staff": 0,
+        "created_at": now_iso(), "last_message_at": now_iso(),
+    }
+    await db.conversations.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/customer/conversation")
+async def customer_conversation(c: dict = Depends(current_customer)):
+    conv = await _resolve_or_create_conversation(c["id"])
+    msgs = await db.messages.find({"conversation_id": conv["id"]}, {"_id": 0}).sort("at", 1).limit(200).to_list(200)
+    await db.conversations.update_one({"id": conv["id"]}, {"$set": {"unread_customer": 0}})
+    conv["unread_customer"] = 0
+    return {"conversation": conv, "messages": msgs}
+
+
+@api.post("/customer/messages")
+async def customer_send_message(body: MessageIn, c: dict = Depends(current_customer)):
+    conv = await _resolve_or_create_conversation(c["id"])
+    msg = {
+        "id": new_id(), "conversation_id": conv["id"],
+        "from_type": "customer", "from_id": c["id"],
+        "body": body.body.strip()[:4000], "at": now_iso(),
+    }
+    await db.messages.insert_one(msg)
+    await db.conversations.update_one(
+        {"id": conv["id"]},
+        {"$set": {"last_message_at": msg["at"]}, "$inc": {"unread_staff": 1}}
+    )
+    # Notify staff of the preferred store (or all admins if none)
+    staff_q = {"role": {"$in": ["admin", "manager"]}}
+    if conv.get("store_id"):
+        staff_q["$or"] = [{"store_id": conv["store_id"]}, {"role": "admin"}]
+    async for u in db.users.find(staff_q, {"id": 1}):
+        await db.notifications.insert_one({
+            "id": new_id(), "target_type": "staff", "target_id": u["id"],
+            "kind": "message", "title": f"Nouveau message · {c.get('first_name', 'Client')}",
+            "body": msg["body"][:120], "meta": {"conversation_id": conv["id"]},
+            "read": False, "at": now_iso(),
+        })
+    msg.pop("_id", None)
+    return msg
+
+
+@api.get("/staff/conversations")
+async def staff_list_conversations(user: dict = Depends(require_role("admin", "manager", "seller"))):
+    q: dict = {}
+    if user.get("store_id") and user.get("role") != "admin":
+        q["store_id"] = {"$in": [user["store_id"], None]}
+    convs = await db.conversations.find(q, {"_id": 0}).sort("last_message_at", -1).limit(100).to_list(100)
+    # enrich with customer name + last message
+    for cv in convs:
+        cust = await db.customers.find_one({"id": cv["customer_id"]}, {"_id": 0, "first_name": 1, "last_name": 1})
+        cv["customer_name"] = f"{cust.get('first_name','')} {cust.get('last_name','')}".strip() if cust else "Client"
+        last = await db.messages.find_one({"conversation_id": cv["id"]}, {"_id": 0}, sort=[("at", -1)])
+        cv["last_message"] = (last or {}).get("body", "")[:160]
+    return convs
+
+
+@api.get("/staff/conversations/{cid}")
+async def staff_get_conversation(cid: str, user: dict = Depends(require_role("admin", "manager", "seller"))):
+    conv = await db.conversations.find_one({"id": cid}, {"_id": 0})
+    if not conv:
+        raise HTTPException(404, "Conversation introuvable")
+    msgs = await db.messages.find({"conversation_id": cid}, {"_id": 0}).sort("at", 1).limit(500).to_list(500)
+    await db.conversations.update_one({"id": cid}, {"$set": {"unread_staff": 0}})
+    conv["unread_staff"] = 0
+    cust = await db.customers.find_one({"id": conv["customer_id"]}, {"_id": 0, "password_hash": 0})
+    return {"conversation": conv, "messages": msgs, "customer": cust}
+
+
+@api.post("/staff/conversations/{cid}/messages")
+async def staff_send_message(cid: str, body: MessageIn, user: dict = Depends(require_role("admin", "manager", "seller"))):
+    conv = await db.conversations.find_one({"id": cid})
+    if not conv:
+        raise HTTPException(404, "Conversation introuvable")
+    msg = {
+        "id": new_id(), "conversation_id": cid,
+        "from_type": "staff", "from_id": user["id"], "from_name": user.get("name", ""),
+        "body": body.body.strip()[:4000], "at": now_iso(),
+    }
+    await db.messages.insert_one(msg)
+    await db.conversations.update_one(
+        {"id": cid},
+        {"$set": {"last_message_at": msg["at"]}, "$inc": {"unread_customer": 1}}
+    )
+    staff_name = user.get("name") or "L'équipe"
+    await db.notifications.insert_one({
+        "id": new_id(), "target_type": "customer", "target_id": conv["customer_id"],
+        "kind": "staff_reply", "title": f"{staff_name} t'a répondu",
+        "body": msg["body"][:120], "meta": {"conversation_id": cid},
+        "read": False, "at": now_iso(),
+    })
+    msg.pop("_id", None)
+    return msg
+
+
+# --- Events / News / Store info ------------------------------------------
+class EventIn(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    image_url: Optional[str] = None
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    location: Optional[str] = None
+    store_id: Optional[str] = None
+    active: bool = True
+
+
+class NewsIn(BaseModel):
+    title: str
+    body: Optional[str] = ""
+    image_url: Optional[str] = None
+    pinned: bool = False
+    active: bool = True
+
+
+@api.get("/events")
+async def list_events_public():
+    now = datetime.now(timezone.utc).isoformat()
+    q = {"active": True, "$or": [{"ends_at": None}, {"ends_at": {"$gte": now}}]}
+    return await db.events.find(q, {"_id": 0}).sort("starts_at", 1).limit(50).to_list(50)
+
+
+@api.post("/admin/events")
+async def create_event(body: EventIn, _: dict = Depends(require_role("admin", "manager"))):
+    doc = {"id": new_id(), **body.model_dump(), "created_at": now_iso()}
+    await db.events.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/events/{eid}")
+async def update_event(eid: str, body: EventIn, _: dict = Depends(require_role("admin", "manager"))):
+    await db.events.update_one({"id": eid}, {"$set": body.model_dump()})
+    return await db.events.find_one({"id": eid}, {"_id": 0})
+
+
+@api.delete("/admin/events/{eid}")
+async def delete_event(eid: str, _: dict = Depends(require_role("admin"))):
+    await db.events.delete_one({"id": eid})
+    return {"ok": True}
+
+
+@api.get("/news")
+async def list_news_public():
+    return await db.news.find({"active": True}, {"_id": 0}).sort([("pinned", -1), ("created_at", -1)]).limit(50).to_list(50)
+
+
+@api.post("/admin/news")
+async def create_news(body: NewsIn, _: dict = Depends(require_role("admin", "manager"))):
+    doc = {"id": new_id(), **body.model_dump(), "created_at": now_iso()}
+    await db.news.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/news/{nid}")
+async def update_news(nid: str, body: NewsIn, _: dict = Depends(require_role("admin", "manager"))):
+    await db.news.update_one({"id": nid}, {"$set": body.model_dump()})
+    return await db.news.find_one({"id": nid}, {"_id": 0})
+
+
+@api.delete("/admin/news/{nid}")
+async def delete_news(nid: str, _: dict = Depends(require_role("admin"))):
+    await db.news.delete_one({"id": nid})
+    return {"ok": True}
+
+
+# --- Customer stats + favorites ------------------------------------------
+@api.get("/customer/stats")
+async def customer_stats(c: dict = Depends(current_customer)):
+    sales = await db.sales.find({"customer_id": c["id"], "status": "paid"}, {"_id": 0}).to_list(1000)
+    total_spent = sum(s.get("total", 0) for s in sales)
+    visits = len(sales)
+    # Favorite store
+    store_counts: dict = {}
+    first_at = None
+    last_at = None
+    product_ids = set()
+    for s in sales:
+        if s.get("store_id"):
+            store_counts[s["store_id"]] = store_counts.get(s["store_id"], 0) + 1
+        at = s.get("created_at")
+        if at:
+            if not first_at or at < first_at: first_at = at
+            if not last_at or at > last_at: last_at = at
+        for it in s.get("items", []):
+            if it.get("product_id"): product_ids.add(it["product_id"])
+    top_store_id = max(store_counts, key=store_counts.get) if store_counts else None
+    top_store = None
+    if top_store_id:
+        s = await db.stores.find_one({"id": top_store_id}, {"_id": 0, "name": 1})
+        if s: top_store = s.get("name")
+    rewards_count = await db.rewards.count_documents({"customer_id": c["id"]})
+    return {
+        "visits": visits,
+        "total_spent": round(total_spent, 2),
+        "loyalty_points": c.get("loyalty_points", 0),
+        "distinct_products": len(product_ids),
+        "rewards_total": rewards_count,
+        "top_store": top_store,
+        "first_visit_at": first_at,
+        "last_visit_at": last_at,
+    }
+
+
+class FavoriteIn(BaseModel):
+    product_id: str
+
+
+@api.get("/customer/favorites")
+async def list_favorites(c: dict = Depends(current_customer)):
+    favs = await db.customer_favorites.find({"customer_id": c["id"]}, {"_id": 0}).to_list(500)
+    product_ids = [f["product_id"] for f in favs]
+    if not product_ids: return []
+    prods = await db.products.find({"id": {"$in": product_ids}}, {"_id": 0}).to_list(500)
+    # Dedupe products by name across stores for client view
+    seen = {}
+    for p in prods:
+        seen.setdefault(p["name"].lower(), p)
+    return list(seen.values())
+
+
+@api.post("/customer/favorites")
+async def add_favorite(body: FavoriteIn, c: dict = Depends(current_customer)):
+    await db.customer_favorites.update_one(
+        {"customer_id": c["id"], "product_id": body.product_id},
+        {"$set": {"customer_id": c["id"], "product_id": body.product_id, "at": now_iso()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.delete("/customer/favorites/{pid}")
+async def remove_favorite(pid: str, c: dict = Depends(current_customer)):
+    await db.customer_favorites.delete_one({"customer_id": c["id"], "product_id": pid})
+    return {"ok": True}
+
+
+# --- Store info enhanced -------------------------------------------------
+class StoreInfoIn(BaseModel):
+    address: Optional[str] = None
+    hours: Optional[str] = None
+    phone: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+@api.get("/stores/public-full")
+async def stores_public_full():
+    return await db.stores.find({}, {"_id": 0}).sort("code", 1).to_list(20)
+
+
+@api.put("/admin/stores/{sid}/info")
+async def update_store_info(sid: str, body: StoreInfoIn, _: dict = Depends(require_role("admin"))):
+    await db.stores.update_one({"id": sid}, {"$set": body.model_dump(exclude_none=True)})
+    return await db.stores.find_one({"id": sid}, {"_id": 0})
+
 
 
 app.include_router(api)

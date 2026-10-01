@@ -25,6 +25,9 @@ import ClientHome from "./pages/client/ClientHome";
 import ClientQR from "./pages/client/ClientQR";
 import ClientOrders from "./pages/client/ClientOrders";
 import ClientProfile from "./pages/client/ClientProfile";
+import ClientLoyalty from "./pages/client/ClientLoyalty";
+import ClientBoutique from "./pages/client/ClientBoutique";
+import ClientMessaging from "./pages/client/ClientMessaging";
 import "./App.css";
 
 function Protected({ children, roles }) {
@@ -63,6 +66,9 @@ function App() {
             <Route path="me/qr" element={<ClientQR />} />
             <Route path="me/achats" element={<ClientOrders />} />
             <Route path="me/profil" element={<ClientProfile />} />
+            <Route path="me/fidelite" element={<ClientLoyalty />} />
+            <Route path="me/boutique" element={<ClientBoutique />} />
+            <Route path="me/messagerie" element={<ClientMessaging />} />
           </Route>
           <Route path="/pos" element={<Protected><POS /></Protected>} />
           <Route path="/admin" element={<Protected roles={["admin", "manager"]}><BackOfficeLayout /></Protected>}>

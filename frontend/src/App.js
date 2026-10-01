@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import InstallBanner from "./components/InstallBanner";
 import KioskMode from "./components/KioskMode";
 import OfflineBanner from "./components/OfflineBanner";
+import AppUrlListener from "./components/AppUrlListener";
 import Login from "./pages/Login";
 import POS from "./pages/POS";
 import BackOfficeLayout from "./pages/BackOfficeLayout";
@@ -46,6 +47,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <AppUrlListener />
         <Toaster position="top-right" theme="dark" richColors closeButton />
         <KioskMode />
         <OfflineBanner />

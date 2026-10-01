@@ -1,0 +1,34 @@
+{
+  "appId": "fr.chavapote.app",
+  "appName": "Cha Va Pote",
+  "webDir": "build",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#0b0716",
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 400,
+      "backgroundColor": "#0b0716",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "overlaysWebView": true,
+      "backgroundColor": "#0b0716"
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_vapepos",
+      "iconColor": "#D946EF"
+    }
+  }
+}

@@ -1,113 +1,101 @@
-# Cha Va'Pote — Application unifiée (évolution)
+# Cha Va Pote — Application mobile native unifiée
 
-Une seule application Cha Va'Pote pour les clients particuliers et le personnel de boutique, avec une connexion unique qui oriente chacun vers son expérience.
-La caisse existante reste intacte ; l'évolution ajoute autour d'elle un vrai espace client avec fidélité et QR code, sans jamais dégrader le parcours d'encaissement.
+Transformation de l'application web existante en une véritable application mobile téléchargeable sur Google Play Store et Apple App Store, sous le nom **Cha Va Pote** (identifiant unique `fr.chavapote.app`).
+Tout ce qui a été construit à ce jour est conservé à l'identique — caisse tablette, portail client mobile, back-office admin, fidélité, QR code, multi-magasins, catalogue importé — et simplement empaqueté dans un conteneur natif iOS/Android via Capacitor, sans aucune réécriture.
 
 ## Pour qui
 
-- **Clients particuliers** — utilisent l'app sur smartphone pour leur compte, leur QR fidélité et leur historique d'achats.
-- **Vendeurs (SELLER)** — utilisent la caisse sur tablette en paysage, comme aujourd'hui, avec en plus le scan du QR client.
-- **Administrateurs (ADMIN)** — gèrent produits, stocks, utilisateurs, magasins, clients et paramètres.
-
-Le rôle MANAGER intermédiaire n'est pas ajouté maintenant (reporté à une phase ultérieure).
+- **Vendeurs et administrateurs** installent l'app sur la tablette du comptoir (Android en priorité, iPad compatible) et retrouvent la caisse paysage avec le scan via douchette USB, exactement comme aujourd'hui.
+- **Clients particuliers** installent la même app sur leur smartphone depuis le Play Store ou l'App Store et retrouvent leur espace fidélité, leur QR code et leur historique d'achats.
+- Un seul code source, une seule app publiée sur chaque store — le routage par rôle gère automatiquement l'expérience affichée après connexion.
 
 ## Fonctionnalités et expérience
 
-**Connexion unique**
-Une seule page d'accueil « Connexion / Inscription » remplace les deux logins actuels. Le backend renvoie le rôle et l'app oriente automatiquement :
-- CLIENT → espace personnel mobile
-- SELLER → caisse tablette (écran actuel, inchangé)
-- ADMIN → gestion + accès caisse
+**Une seule et même app, deux expériences selon le rôle**
+L'app affiche l'écran de connexion unifié existant. Après authentification, le backend renvoie le rôle (client, vendeur, admin) et l'app route automatiquement vers la caisse pour le staff ou vers le portail fidélité pour les clients. Rien ne change dans les parcours, seule l'enveloppe devient native.
 
-**Inscription publique = CLIENT uniquement**
-Les particuliers peuvent créer un compte librement. Champs demandés : prénom, nom, email, téléphone, mot de passe, **date de naissance (contrôle 18+ bloquant)**, acceptation des CGU. Les comptes SELLER et ADMIN restent créés par un administrateur (comme aujourd'hui).
+**Scan par douchette USB uniquement**
+Aucun scan natif via caméra n'est ajouté. L'app sait reconnaître la douchette branchée à la tablette comme un clavier physique (comportement HID), exactement comme la version web actuelle. Aucune permission caméra n'est demandée à l'installation, ce qui simplifie la validation sur les stores.
 
-**Espace client (mobile)**
-- Accueil : bonjour prénom, points de fidélité, dernière commande, bouton QR bien visible.
-- Mon QR : QR code plein écran, luminosité recommandée max, régénérable.
-- Fidélité : solde de points, récompenses disponibles, historique des gains.
-- Mes achats : liste des ventes en boutique associées au compte, détail article par article.
-- Mes abonnements : lecture seule pour l'instant (Basique / Plus / Premium / Gold), sans paiement récurrent — architecture préparée pour plus tard.
-- Mon profil : édition des infos, mot de passe, suppression de compte, déconnexion.
+**Session vendeur temporaire, session client permanente**
+Comportement conservé à l'identique : les vendeurs doivent se reconnecter à chaque ouverture de l'app (fermeture de session automatique à la fermeture), les clients restent connectés en permanence comme dans toute app mobile.
 
-**QR client sécurisé**
-Chaque client reçoit un QR généré à la création du compte. Le QR ne contient qu'un token opaque (aucune donnée personnelle). Le token peut être révoqué et régénéré depuis le profil.
+**Suppression de compte accessible dans l'app**
+L'écran de suppression de compte existant est rendu accessible depuis l'espace Profil du client. Il est obligatoire pour la validation Play Store et App Store. Une page publique miroir reste accessible sur le web pour satisfaire l'exigence Google.
 
-**Caisse — évolution minimale**
-- Le bouton « QR CLIENT » de la caisse scanne le QR du client : l'app affiche prénom + points + nb d'achats, puis associe le client au panier en un clic.
-- Un client reste **facultatif** pour toute vente : le parcours anonyme est préservé.
-- À la validation d'une vente avec client associé : historique + points fidélité mis à jour automatiquement, visibles côté client à la prochaine ouverture.
+**Notifications in-app conservées**
+La cloche de notifications in-app continue de fonctionner comme aujourd'hui (ventes, points gagnés, événements staff). Les notifications push système sont volontairement reportées à une phase ultérieure pour accélérer la mise en ligne.
 
-**Notifications in-app**
-Une cloche dans l'en-tête avec liste des notifications, marquage lu/non-lu. Côté client : commande confirmée, points gagnés, récompense disponible. Côté staff : stock faible, événements importants. Pas d'email ni de push dans cette phase.
+**Icône et splash screen aux couleurs de Cha Va Pote**
+Déclinaison du branding actuel (dégradé violet → fuchsia + éclair) adaptée automatiquement à tous les formats requis par les stores. Un logo personnalisé pourra remplacer cette version à n'importe quel moment.
 
-**Mode bloqué (kiosque renforcé)**
-Un interrupteur dans les paramètres caisse verrouille la tablette sur l'écran d'encaissement : plein écran forcé, wake-lock, retour caisse automatique, menus secondaires masqués, sortie par code PIN administrateur uniquement. Utile pour laisser une tablette en libre-service sur le comptoir sans qu'un client puisse en sortir.
-
-**Publication mobile (App Store + Play Store)**
-L'app est packagée pour être publiée comme application native sur iOS et Android tout en gardant une base unique. Icône, splash screen, nom, version, politique de confidentialité, gestion et suppression de compte sont préparés pour respecter les exigences des stores. Priorité de publication : Android d'abord, iOS ensuite.
-
-**Séparation stricte des données**
-Un CLIENT ne voit que ses propres données. Toutes les vérifications de rôle et d'appartenance sont refaites côté serveur sur chaque endpoint sensible.
+**Lien direct depuis un lien web**
+Si quelqu'un clique sur un lien `https://chavapote.app/...` depuis un mail ou un SMS, l'app s'ouvre directement sur la bonne page lorsque l'app est installée ; sinon le navigateur ouvre la version web, qui continue de fonctionner en parallèle.
 
 ## Parcours utilisateur
 
-**Client — première fois**
-Ouvre l'app → « Créer un compte » → renseigne infos + date de naissance → confirmation 18+ → compte créé → arrive sur son accueil → affiche son QR → passe en boutique → le vendeur scanne le QR → gagne des points → à la prochaine ouverture, l'historique et les points sont à jour.
+**Vendeur — ouverture d'une journée**
+Allumer la tablette → ouvrir l'app Cha Va Pote depuis l'écran d'accueil → saisir email et mot de passe → choisir le magasin → choisir sa carte vendeur → encaisser normalement avec la douchette.
 
-**Vendeur**
-Ouvre l'app → connexion → arrive directement sur la caisse (aucun changement) → encaisse comme aujourd'hui → scanne le QR d'un client quand il y en a un → valide la vente.
+**Client — première installation**
+Télécharger « Cha Va Pote » depuis le Play Store ou l'App Store → ouvrir l'app → créer son compte (prénom, date de naissance 18+, email, mot de passe, acceptation CGU) → arriver sur son espace fidélité → afficher son QR en boutique.
 
-**Admin**
-Ouvre l'app → connexion → arrive sur le tableau de bord de gestion → accède à toutes les fonctions actuelles + gestion des comptes clients et attribution des rôles staff.
+**Client — utilisation quotidienne**
+Ouvrir l'app → arriver directement sur son accueil fidélité (déjà connecté) → présenter le QR au vendeur → repartir avec des points supplémentaires visibles instantanément.
 
-## UI / UX
+**Admin — gestion depuis la tablette**
+Même parcours qu'un vendeur, puis bouton Gestion depuis la caisse pour accéder au back-office (produits, stock, catégories, ventes, utilisateurs, comptabilité).
 
-- Identité conservée : palette **violet / rose**, moderne, lumineuse, jeune, sans virer ERP froid.
-- Espace client : **mobile portrait prioritaire**, cartes arrondies, grand QR, gros points de fidélité.
-- Caisse : **tablette paysage inchangée**, zones produits / panier / actions comme actuellement.
-- Admin : desktop + tablette, dense mais lisible.
-- Layouts responsive dédiés par rôle : jamais de compromis qui dégrade la caisse pour améliorer le mobile.
+## UI/UX feel
+
+- Design actuel conservé intégralement : palette violet / fuchsia / rose, mode clair/sombre détecté selon la préférence système, animations douces, cartes glassmorphism.
+- Adaptation automatique aux encoches, barres de statut et safe areas iOS et Android — rien ne passe sous les éléments système.
+- Caisse en paysage pour tablette, portail client en portrait pour smartphone, back-office en desktop/tablette — tous les layouts existants sont réutilisés sans compromis entre eux.
+- Icône native lumineuse avec dégradé Cha Va Pote, splash screen court et clean à l'ouverture.
+- Aucune bannière « installer l'app » puisque c'est désormais déjà une app installée.
 
 ## Phases
 
-### Phase 1 — MVP (construit maintenant)
+### Phase 1 — MVP mobile natif (construit maintenant)
 
-1. Fusion des deux pages de connexion en une seule page unifiée avec bascule « Connexion / Inscription ».
-2. Inscription publique CLIENT avec date de naissance et contrôle 18+ bloquant.
-3. Redirection par rôle après login (CLIENT → espace perso, SELLER → caisse, ADMIN → gestion).
-4. Espace client mobile : Accueil, Mon QR, Fidélité, Mes achats, Mon profil.
-5. Génération et affichage du QR client avec token opaque, révocation possible.
-6. Scan du QR client depuis la caisse existante + association au panier + mise à jour auto de l'historique et des points à la validation.
-7. Notifications in-app (cloche + liste) côté client et côté staff.
-8. Mode bloqué caisse (kiosque renforcé, sortie par PIN admin).
-9. Packaging application mobile Android + iOS : manifest, icônes, splash, politique de confidentialité, écran suppression de compte — prêt à soumettre au Play Store en priorité, App Store ensuite.
-10. Vérifications de rôle et d'appartenance renforcées côté serveur sur toutes les routes clients et staff.
+1. Intégration de Capacitor sur le projet React existant, sans toucher au code applicatif.
+2. Création des projets natifs Android et iOS avec le nom `Cha Va Pote` et l'identifiant `fr.chavapote.app`.
+3. Génération automatique de l'icône et du splash screen depuis le branding actuel pour toutes les tailles requises par les deux stores.
+4. Configuration de la barre de statut, du safe area et du mode plein écran edge-to-edge pour qu'aucun contenu ne passe sous les éléments système.
+5. Vérification de la douchette USB en mode HID clavier dans le conteneur natif.
+6. Intégration propre de la suppression de compte dans le menu Profil du client, conforme aux exigences Play Store et App Store.
+7. Ajout des liens profonds universels — un lien web ouvre l'app si installée, sinon le site.
+8. Génération d'un `.aab` signé prêt pour une soumission Play Store (circuit interne puis production).
+9. Génération d'un `.ipa` prêt pour une soumission TestFlight puis App Store.
+10. Préparation des fiches stores : nom, description courte et longue, captures d'écran, URL politique de confidentialité, URL publique de suppression de compte, catégorie, classification de contenu.
+
+À la fin de la phase 1, l'app est installable sur un téléphone/tablette de test via un lien d'installation. La soumission effective aux stores (comptes développeurs à activer, pièces d'identité, délais de validation Apple et Google) reste pilotée côté boutique une fois la build validée.
 
 ### Phase 2 — Après validation du MVP
 
-- Rôle MANAGER intermédiaire avec matrice de permissions dédiée.
-- Notifications par email (via Resend) en plus des notifications in-app.
-- Écran « Commandes web » côté caisse avec statuts (Nouvelle / En préparation / Prête / Terminée / Annulée), sans encore de connexion externe.
-- Récompenses de fidélité activables (coupons, paliers, échange de points).
-- Publication effective sur le Play Store puis l'App Store.
+- Notifications push système natives (ventes confirmées, promotions, réassort) avec provider à définir.
+- Mode hors-connexion renforcé pour la caisse (ventes mises en file et resynchronisées au retour du réseau).
+- Impression ticket native via imprimante thermique Bluetooth.
+- Récompenses de fidélité activables côté client depuis l'app (coupons scannables en caisse).
+- Publication effective sur le Play Store puis l'App Store, suivi des éventuels retours de review.
 
 ### Phase 3 — Plus tard
 
-- Intégration réelle des commandes web depuis le site Lovable (dès que les informations techniques du site sont fournies).
-- Paiement récurrent pour les abonnements Basique / Plus / Premium / Gold.
-- Notifications push mobiles natives.
+- Intégration du site Lovable pour les commandes web (dès que les informations techniques du site sont fournies).
+- Paiement récurrent intégré pour les abonnements Basique / Plus / Premium / Gold.
+- Intégration d'un TPE physique (lecteur CB Bluetooth) depuis l'app.
+- Analytics mobile dédié et crash reporting.
 - Conformité caisse française à valider (intégrité, archivage, traçabilité).
 
-## Hypothèses
+## Assumptions
 
-- La caisse actuelle et ses fonctionnalités (produits, catégories hiérarchiques, scan, panier, remises, paiement espèces/carte/mixte, tickets, sessions, multi-magasins Pouzauges/Chantonnay, import CSV, images auto EAN) sont conservées telles quelles ; seule l'intégration du QR client y est ajoutée.
-- Le système d'authentification existant (email + mot de passe pour staff, email + QR pour client) est fusionné en une seule route avec routage par rôle ; les comptes staff existants continuent de fonctionner sans re-création.
-- Le contrôle 18+ à l'inscription est bloquant et non contournable côté serveur ; aucun compte CLIENT de moins de 18 ans n'est créé.
-- Le QR client contient uniquement un token opaque aléatoire long ; nom, email, téléphone, adresse n'y figurent jamais.
-- Un client reste facultatif pour toute vente en caisse : la vitesse d'encaissement anonyme reste prioritaire.
-- Le mode bloqué se désactive uniquement avec le PIN d'un compte ADMIN ; un SELLER ne peut pas en sortir.
-- Aucune connexion réelle avec le site Lovable n'est mise en place dans cette phase — reporté totalement.
-- Les abonnements clients sont affichés en lecture seule ; aucun prélèvement récurrent n'est déclenché.
-- L'application est packagée pour être publiée sur les stores mobiles, avec Android en priorité de publication et iOS ensuite ; la version web reste utilisable en parallèle pour la caisse tablette et l'admin desktop.
-- Toutes les vérifications de rôle sont refaites côté serveur ; l'interface ne fait jamais foi seule.
+- L'app mobile pointe vers l'URL preview actuelle du backend FastAPI tant qu'un domaine personnalisé n'est pas fourni. Un passage ultérieur à `api.chavapote.fr` ou équivalent se fait par simple changement de variable sans republier l'app, à condition d'anticiper la redirection pour les liens profonds.
+- L'app est publiée sous un **compte développeur unique Cha Va Pote** côté Google (frais 25 $ une fois) et côté Apple (99 $/an). L'ouverture de ces comptes et la fourniture des justificatifs d'entreprise restent à la charge de la boutique.
+- Le nom affiché sur les stores et sur l'écran d'accueil est `Cha Va Pote` sans apostrophe pour maximiser la compatibilité système. L'orthographe `Cha Va'Pote` reste utilisée partout dans l'interface interne.
+- Aucun scan par caméra n'est intégré en phase 1 ; seule la douchette USB en mode HID est supportée. Cela évite une permission caméra sensible et accélère la review store.
+- Les notifications push natives (via APNs/FCM) ne sont pas intégrées en phase 1. Seules les notifications in-app existantes restent actives. Aucun compte Firebase n'est créé.
+- La suppression de compte supprime immédiatement les données personnelles du client et anonymise les ventes passées (conservées pour obligations comptables). Comportement déjà en place, simplement rendu plus visible dans le profil mobile.
+- Aucun paiement d'abonnement n'est traité par l'app en phase 1 : les abonnements restent en lecture seule. Cela évite les frais de 15–30 % imposés par Apple et Google sur les paiements in-app tant que la stratégie commerciale n'est pas arrêtée.
+- Le site web actuel reste accessible en parallèle à l'app, pour les clients qui préfèrent le navigateur et pour permettre à Google d'ouvrir une URL de suppression de compte publique.
+- Les signatures Android (keystore de release) et iOS (certificats + profils de provisioning) sont générées et conservées côté développement, avec sauvegarde documentée transmise à la boutique à la fin de la phase 1.
+- Les mises à jour futures de l'app ne nécessitent pas de republier à chaque changement : seule la coque native est publiée. Toutes les évolutions du contenu web (règles de fidélité, catalogue, prix, textes) continuent d'être poussées côté serveur et sont visibles immédiatement sans mise à jour store.

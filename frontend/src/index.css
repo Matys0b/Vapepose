@@ -83,6 +83,29 @@ html[data-theme="light"] {
 }
 
 /* ============================================================
+   SAFE AREAS — native (iOS notch, Android edge-to-edge)
+   ============================================================ */
+:root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* Push the whole app content below the system status bar when inside the native wrapper */
+html.capacitor-native body,
+html body {
+    padding-top: var(--safe-top);
+    padding-right: var(--safe-right);
+    padding-left: var(--safe-left);
+}
+
+/* Any fixed-bottom element (bottom-nav, floating buttons) gets the inset too */
+.bottom-safe {
+    padding-bottom: var(--safe-bottom);
+}
+
+/* ============================================================
    BASE — animated aurora background
    ============================================================ */
 html, body, #root {

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2732 2732">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0716"/>
+      <stop offset="1" stop-color="#1a0b35"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C084FC"/>
+      <stop offset="0.5" stop-color="#D946EF"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+    <radialGradient id="haloA" cx="0.3" cy="0.2" r="0.5">
+      <stop offset="0" stop-color="#D946EF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#D946EF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="haloB" cx="0.75" cy="0.9" r="0.5">
+      <stop offset="0" stop-color="#8B5CF6" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="2732" height="2732" fill="url(#bg)"/>
+  <rect width="2732" height="2732" fill="url(#haloA)"/>
+  <rect width="2732" height="2732" fill="url(#haloB)"/>
+  <g transform="translate(1366 1120)">
+    <path d="M86 -340 L-174 40 L-4 40 L-44 324 L256 -80 L86 -80 Z"
+          fill="url(#bolt)" stroke="#ffffff" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+  <text x="1366" y="1720" text-anchor="middle"
+        fill="#ffffff" font-family="Helvetica, Arial, sans-serif"
+        font-weight="900" font-size="160" letter-spacing="-4">Cha Va Pote</text>
+  <text x="1366" y="1810" text-anchor="middle"
+        fill="#C084FC" font-family="Helvetica, Arial, sans-serif"
+        font-weight="700" font-size="54" letter-spacing="18">VAPEPOS · FIDÉLITÉ</text>
+</svg>

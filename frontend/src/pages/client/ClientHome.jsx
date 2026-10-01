@@ -46,21 +46,43 @@ export default function ClientHome() {
         </div>
       </Card>
 
-      {/* Primary CTA — QR */}
-      <Link to="/client/me/qr" className="block" data-testid="cta-qr">
-        <Card className="p-4 bg-slate-900/70 border-violet-500/25 hover:border-fuchsia-500/50 transition">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center">
-              <QrCode className="w-6 h-6 text-white" />
+      {/* Primary CTAs — QR + Loyalty */}
+      <div className="grid grid-cols-2 gap-3">
+        <Link to="/client/me/qr" className="block" data-testid="cta-qr">
+          <Card className="p-3 bg-slate-900/70 border-violet-500/25 hover:border-fuchsia-500/50 transition h-full">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center mb-2">
+              <QrCode className="w-5 h-5 text-white" />
             </div>
-            <div className="flex-1">
-              <div className="font-display font-bold text-base">Afficher mon QR</div>
-              <div className="text-xs text-slate-400">Montre-le au vendeur pour cumuler des points</div>
+            <div className="font-display font-bold text-sm">Mon QR</div>
+            <div className="text-[10px] text-slate-400">À scanner en caisse</div>
+          </Card>
+        </Link>
+        <Link to="/client/me/fidelite" className="block" data-testid="cta-loyalty">
+          <Card className="p-3 bg-slate-900/70 border-violet-500/25 hover:border-fuchsia-500/50 transition h-full">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 via-pink-500 to-fuchsia-500 flex items-center justify-center mb-2">
+              <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-500" />
-          </div>
-        </Card>
-      </Link>
+            <div className="font-display font-bold text-sm">Mes récompenses</div>
+            <div className="text-[10px] text-slate-400">Niveau · paliers · récompenses</div>
+          </Card>
+        </Link>
+      </div>
+
+      {/* Shortcuts row 2 */}
+      <div className="grid grid-cols-2 gap-3">
+        <Link to="/client/me/messagerie" className="block" data-testid="cta-messagerie-home">
+          <Card className="p-3 bg-slate-900/70 border-violet-500/25 hover:border-fuchsia-500/50 transition h-full">
+            <div className="font-display font-bold text-sm">💬 Parler à l'équipe</div>
+            <div className="text-[10px] text-slate-400">On te répond en vrai</div>
+          </Card>
+        </Link>
+        <Link to="/client/me/boutique" className="block" data-testid="cta-boutique-home">
+          <Card className="p-3 bg-slate-900/70 border-violet-500/25 hover:border-fuchsia-500/50 transition h-full">
+            <div className="font-display font-bold text-sm">🛍️ Boutique & événements</div>
+            <div className="text-[10px] text-slate-400">Magasins · actus · events</div>
+          </Card>
+        </Link>
+      </div>
 
       {/* Stats mini */}
       <div className="grid grid-cols-2 gap-3">

@@ -41,6 +41,7 @@ export const lookupBarcode = (code) =>
 
 // --- Customer self ---
 export const customerMe = () => api.get("/customer/me");
+export const customerYearRecap = (year) => api.get(`/customer/year-recap${year ? `?year=${year}` : ""}`);
 export const customerQRRefresh = () => api.post("/customer/qr-refresh", {});
 export const customerProfile = (payload) => api.put("/customer/profile", payload);
 export const customerDeleteAccount = () => api.del("/customer/account");

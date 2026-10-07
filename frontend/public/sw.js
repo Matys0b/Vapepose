@@ -1,5 +1,5 @@
 /* VapePOS Service Worker — V2 client experience */
-const VERSION = "vapepos-v12-client-v2";
+const VERSION = "vapepos-v13-admin-loyalty";
 const APP_SHELL = ["/", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {

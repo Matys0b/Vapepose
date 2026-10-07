@@ -72,6 +72,7 @@ export default function ClientLayout() {
       />
       <Tabs.Screen name="messaging" options={{ href: null }} />
       <Tabs.Screen name="history" options={{ href: null }} />
+      <Tabs.Screen name="year-recap" options={{ href: null }} />
     </Tabs>
   );
 }

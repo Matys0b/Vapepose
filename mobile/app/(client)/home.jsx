@@ -126,12 +126,12 @@ export default function ClientHome() {
             testID="shortcut-chat"
           />
           <Shortcut
-            icon="storefront"
-            colors={["#10b981", "#06b6d4"]}
-            title="Boutique"
-            subtitle="Horaires · évènements"
-            onPress={() => router.push("/(client)/store")}
-            testID="shortcut-store"
+            icon="trophy"
+            colors={["#fbbf24", "#f43f5e"]}
+            title="Mon année Vape"
+            subtitle="Récap · top produits"
+            onPress={() => router.push("/(client)/year-recap")}
+            testID="shortcut-year"
           />
         </View>
 

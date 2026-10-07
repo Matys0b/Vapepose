@@ -18,6 +18,7 @@ import UsersPage from "./pages/Users";
 import Accounting from "./pages/Accounting";
 import Expenses from "./pages/Expenses";
 import Statistics from "./pages/Statistics";
+import LoyaltyPage from "./pages/Loyalty";
 import Privacy from "./pages/Privacy";
 import ClientLayout from "./pages/client/ClientLayout";
 import ClientLogin from "./pages/client/ClientLogin";
@@ -80,6 +81,7 @@ function App() {
             <Route path="fournisseurs" element={<SuppliersPage />} />
             <Route path="comptabilite" element={<Accounting />} />
             <Route path="statistiques" element={<Statistics />} />
+            <Route path="fidelite" element={<LoyaltyPage />} />
             <Route path="depenses" element={<Expenses />} />
             <Route path="utilisateurs" element={<UsersPage />} />
           </Route>

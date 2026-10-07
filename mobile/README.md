@@ -50,17 +50,33 @@ yarn start
 
 ## Build production Android
 
-### APK pour distribution interne / test
+### Pré-requis une seule fois
+
+1. Créer un compte Expo (gratuit) : <https://expo.dev/signup>
+2. Depuis `/app/mobile`, se connecter : `npx expo login`
+3. Initialiser le projet EAS (crée un `projectId` et le met dans `app.json → extra.eas.projectId`) :
+   ```bash
+   npx eas init --non-interactive --force
+   ```
+   > ⚠️ Sans ça, la build échoue avec « Missing EAS projectId ».
+
+### APK pour distribution interne / test (recommandé pour la tablette comptoir)
 ```bash
-eas build --profile preview --platform android
+cd /app/mobile
+npx eas build --profile preview --platform android
 ```
-Télécharger le `.apk` généré depuis le dashboard Expo et l'installer directement sur une tablette.
+Le lien de téléchargement du `.apk` s'affiche à la fin (~10-15 min). Télécharge-le sur la tablette et installe (autoriser « sources inconnues »).
 
 ### AAB pour Google Play Store
 ```bash
-eas build --profile production --platform android
-eas submit --platform android --latest
+npx eas build --profile production --platform android
+npx eas submit --platform android --latest
 ```
+Nécessite un compte Google Play Developer (25 $, une fois à vie) et une service-account JSON. `eas submit` guide la première fois.
+
+### Mettre à jour l'URL du backend sans rebuilder
+
+Les builds EAS récupèrent `EXPO_PUBLIC_BACKEND_URL` depuis le profil `eas.json` au moment du build. Pour changer d'URL (ex. passer du preview au domaine prod définitif), éditer `eas.json` puis relancer `eas build`.
 
 ## Variables d'environnement
 

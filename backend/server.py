@@ -2264,6 +2264,84 @@ async def customer_stats(c: dict = Depends(current_customer)):
     }
 
 
+# --- Year recap (Mon Année Vape) -----------------------------------------
+@api.get("/customer/year-recap")
+async def customer_year_recap(year: Optional[int] = None, c: dict = Depends(current_customer)):
+    y = int(year) if year else datetime.now(timezone.utc).year
+    start_iso = f"{y}-01-01T00:00:00+00:00"
+    end_iso = f"{y+1}-01-01T00:00:00+00:00"
+    sales = await db.sales.find(
+        {"customer_id": c["id"], "status": "completed", "created_at": {"$gte": start_iso, "$lt": end_iso}},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(5000)
+    total_spent = round(sum(s.get("total", 0) for s in sales), 2)
+    visits = len(sales)
+    points_earned = sum(s.get("loyalty_added", 0) for s in sales)
+    tally: dict = {}
+    store_counts: dict = {}
+    busiest_month: dict = {}
+    biggest = None
+    for s in sales:
+        if s.get("store_id"):
+            store_counts[s["store_id"]] = store_counts.get(s["store_id"], 0) + 1
+        at = s.get("created_at")
+        if at:
+            busiest_month[at[:7]] = busiest_month.get(at[:7], 0) + 1
+        if biggest is None or s.get("total", 0) > biggest.get("total", 0):
+            biggest = s
+        for it in s.get("items", []):
+            pid = it.get("product_id")
+            if not pid:
+                continue
+            prev = tally.get(pid) or {"product_id": pid, "name": it.get("name", ""), "quantity": 0, "revenue": 0.0}
+            prev["quantity"] += int(it.get("quantity", 0))
+            prev["revenue"] += (it.get("unit_price", 0) * it.get("quantity", 0)) - (it.get("discount", 0) or 0)
+            tally[pid] = prev
+    top_products = sorted(tally.values(), key=lambda x: x["quantity"], reverse=True)[:5]
+    for p in top_products:
+        p["revenue"] = round(p["revenue"], 2)
+    top_store = None
+    top_store_visits = 0
+    if store_counts:
+        top_store_id = max(store_counts, key=store_counts.get)
+        top_store_visits = store_counts[top_store_id]
+        s = await db.stores.find_one({"id": top_store_id}, {"_id": 0, "name": 1})
+        if s:
+            top_store = s.get("name")
+    peak_month = max(busiest_month, key=busiest_month.get) if busiest_month else None
+    rewards_unlocked = await db.rewards.count_documents({
+        "customer_id": c["id"], "unlocked_at": {"$gte": start_iso, "$lt": end_iso},
+    })
+    rewards_used = await db.rewards.count_documents({
+        "customer_id": c["id"], "status": "used", "used_at": {"$gte": start_iso, "$lt": end_iso},
+    })
+    return {
+        "year": y,
+        "has_data": visits > 0,
+        "visits": visits,
+        "total_spent": total_spent,
+        "points_earned": points_earned,
+        "distinct_products": len(tally),
+        "top_products": top_products,
+        "top_store": top_store,
+        "top_store_visits": top_store_visits,
+        "peak_month": peak_month,
+        "rewards_unlocked": rewards_unlocked,
+        "rewards_used": rewards_used,
+        "biggest_sale": (
+            {
+                "total": round(biggest.get("total", 0), 2),
+                "created_at": biggest.get("created_at"),
+                "items": len(biggest.get("items", [])),
+            }
+            if biggest
+            else None
+        ),
+        "first_sale_at": sales[0].get("created_at") if sales else None,
+        "last_sale_at": sales[-1].get("created_at") if sales else None,
+    }
+
+
 class FavoriteIn(BaseModel):
     product_id: str
 

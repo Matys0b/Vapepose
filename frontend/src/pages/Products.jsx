@@ -21,6 +21,32 @@ import { CSS } from "@dnd-kit/utilities";
 
 const fmt = (n) => `${(Math.round(n * 100) / 100).toFixed(2).replace(".", ",")} €`;
 
+/** Resize an image File to maxSide (px) and return a JPEG data URL. */
+async function resizeImage(file, maxSide = 800, quality = 0.82) {
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result || ""));
+    r.onerror = () => rej(new Error("read"));
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("decode"));
+    i.src = dataUrl;
+  });
+  let { width: w, height: h } = img;
+  if (w > maxSide || h > maxSide) {
+    if (w >= h) { h = Math.round(h * (maxSide / w)); w = maxSide; }
+    else { w = Math.round(w * (maxSide / h)); h = maxSide; }
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
 const emptyProduct = {
   name: "", brand: "", sku: "", ean: "", price: 0, cost_price: 0,
   vat_rate: 20, stock: 0, stock_alert: 5, image_url: "", is_favorite: false, variant: "",
@@ -326,16 +352,42 @@ export default function ProductsPage() {
             <Field label="TVA %"><input type="number" step="0.1" value={pForm.vat_rate} onChange={(e) => setPForm({ ...pForm, vat_rate: e.target.value })} className="input-dark" data-testid="pf-vat" /></Field>
             <Field label="Stock"><input type="number" value={pForm.stock} onChange={(e) => setPForm({ ...pForm, stock: e.target.value })} className="input-dark" data-testid="pf-stock" /></Field>
             <Field label="Seuil alerte"><input type="number" value={pForm.stock_alert} onChange={(e) => setPForm({ ...pForm, stock_alert: e.target.value })} className="input-dark" data-testid="pf-alert" /></Field>
-            <Field label="Image URL" wide>
-              <div className="flex gap-2">
-                <input value={pForm.image_url || ""} onChange={(e) => setPForm({ ...pForm, image_url: e.target.value })} className="input-dark flex-1" data-testid="pf-image" />
+            <Field label="Photo du produit" wide>
+              <div className="flex gap-2 flex-wrap">
+                <input value={pForm.image_url || ""} onChange={(e) => setPForm({ ...pForm, image_url: e.target.value })} placeholder="URL ou téléversement ci-dessous" className="input-dark flex-1" data-testid="pf-image" />
                 <Button type="button" variant="outline" onClick={lookupImage} disabled={imgLookup || !pForm.ean} data-testid="btn-lookup-image">
                   <ImageIcon className="w-4 h-4 mr-1" /> {imgLookup ? "…" : "EAN"}
                 </Button>
+                <label className="inline-flex items-center gap-2 h-10 px-3 rounded-lg border border-violet-500/40 bg-violet-500/10 text-violet-100 text-sm cursor-pointer hover:bg-violet-500/20" data-testid="pf-upload-label">
+                  <Upload className="w-4 h-4" /> Téléverser
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    data-testid="pf-upload"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0]; if (!f) return;
+                      try {
+                        const dataUrl = await resizeImage(f, 800, 0.82);
+                        setPForm((p) => ({ ...p, image_url: dataUrl }));
+                        toast.success(`Image compressée (${Math.round(dataUrl.length / 1024)} Ko)`);
+                      } catch { toast.error("Impossible de lire l'image"); }
+                      finally { e.target.value = ""; }
+                    }}
+                  />
+                </label>
+                {pForm.image_url && (
+                  <Button type="button" variant="outline" onClick={() => setPForm((p) => ({ ...p, image_url: "" }))} className="text-rose-300 border-rose-500/40" data-testid="btn-clear-image">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
               {pForm.image_url && (
-                <img src={pForm.image_url} alt="preview" className="mt-2 h-16 w-16 rounded object-cover border border-violet-500/20" />
+                <img src={pForm.image_url} alt="preview" className="mt-2 h-20 w-20 rounded object-cover border border-violet-500/20" />
               )}
+              <div className="text-[10px] text-slate-500 mt-1">
+                JPEG/PNG · redimensionné automatiquement à 800×800 max pour alléger la base.
+              </div>
             </Field>
             <label className="col-span-2 flex items-center gap-2 text-sm">
               <input type="checkbox" checked={!!pForm.is_favorite} onChange={(e) => setPForm({ ...pForm, is_favorite: e.target.checked })} data-testid="pf-favorite" />

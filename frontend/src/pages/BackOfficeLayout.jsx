@@ -5,7 +5,7 @@ import NotificationBell from "../components/NotificationBell";
 import ThemeToggle from "../components/ThemeToggle";
 import {
   LayoutDashboard, Package, Receipt, Users, Boxes, Truck, UserCog, ArrowLeft, LogOut, Zap,
-  Calculator, BarChart3, Wallet
+  Calculator, BarChart3, Wallet, Sparkles
 } from "lucide-react";
 
 export default function BackOfficeLayout() {
@@ -19,6 +19,7 @@ export default function BackOfficeLayout() {
     { to: "/admin/stock", label: "Stock", icon: Boxes },
     { to: "/admin/fournisseurs", label: "Fournisseurs", icon: Truck },
     { to: "/admin/clients", label: "Clients", icon: Users },
+    { to: "/admin/fidelite", label: "Fidélité", icon: Sparkles },
     { to: "/admin/comptabilite", label: "Comptabilité", icon: Calculator },
     { to: "/admin/depenses", label: "Dépenses", icon: Wallet },
     { to: "/admin/statistiques", label: "Statistiques", icon: BarChart3 },

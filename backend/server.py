@@ -1992,6 +1992,15 @@ async def preview_expo_qr():
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
+@api.get("/preview/expo-go-cloudflare.png")
+async def preview_expo_cf_qr():
+    """Alternate QR encoded for the Cloudflare tunnel (no Expo login required)."""
+    path = "/app/mobile/.preview/expo-go-cloudflare.png"
+    if not os.path.exists(path):
+        raise HTTPException(404, "QR non généré")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
 # === V2 CLIENT — rewards, messaging, events, news, stats =================
 class RewardTemplateIn(BaseModel):
     name: str

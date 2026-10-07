@@ -2001,6 +2001,20 @@ async def preview_expo_cf_qr():
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
+@api.get("/preview/vapepos-source.tar.gz")
+async def preview_source_archive():
+    """One-shot download of the entire source tree (excl. node_modules + caches)."""
+    path = "/app/mobile/.preview/vapepos-source.tar.gz"
+    if not os.path.exists(path):
+        raise HTTPException(404, "Archive non générée")
+    return FileResponse(
+        path,
+        media_type="application/gzip",
+        filename="vapepos-source.tar.gz",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 # === V2 CLIENT — rewards, messaging, events, news, stats =================
 class RewardTemplateIn(BaseModel):
     name: str

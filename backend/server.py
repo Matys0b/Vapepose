@@ -13,6 +13,7 @@ from typing import List, Optional, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
+from fastapi.responses import FileResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
@@ -1980,6 +1981,15 @@ async def switch_store(body: StoreSwitchIn, user: dict = Depends(current_user)):
 @api.get("/")
 async def root():
     return {"service": "VapePOS API", "ok": True}
+
+
+@api.get("/preview/expo-go-qr.png")
+async def preview_expo_qr():
+    """Serve the Expo Go QR code generated for the mobile preview tunnel."""
+    path = "/app/mobile/.preview/expo-go-qr.png"
+    if not os.path.exists(path):
+        raise HTTPException(404, "QR non généré")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 # === V2 CLIENT — rewards, messaging, events, news, stats =================

@@ -46,7 +46,8 @@
     "tailwindcss": "^3.4.17"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.0"
+    "@babel/core": "^7.25.0",
+    "@expo/ngrok": "^4.1.0"
   },
   "private": true
 }

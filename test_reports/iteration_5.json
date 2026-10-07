@@ -1,0 +1,72 @@
+{
+  "summary": "Reachability test of Expo tunnel + preview backend for VapePOS mobile app. 4/5 checks PASS. Only failure: QR PNG URL is intercepted by frontend SPA fallback and returns HTML instead of image/png.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "QR code delivery for Expo Go onboarding",
+        "issue": "GET https://vape-register-1.preview.emergentagent.com/preview/expo-go-qr.png returns HTTP 200 but content-type=text/html; charset=utf-8 (68375 bytes) — frontend SPA index.html is served instead of the PNG. The actual PNG exists at /app/mobile/.preview/expo-go-qr.png but is not exposed by any route. iPhones scanning this URL will get HTML, not an image.",
+        "affected_selectors": ["/preview/expo-go-qr.png"]
+      }
+    ],
+    "design_issues": []
+  },
+  "checks": {
+    "check_1_ios_manifest": {
+      "status": "PASS",
+      "http_code": 200,
+      "content_type": "application/expo+json",
+      "size_bytes": 3744,
+      "runtimeVersion": "exposdk:52.0.0",
+      "id_present": true,
+      "launchAsset_url_present": true
+    },
+    "check_2_launch_asset_bundle": {
+      "status": "PASS",
+      "http_code": 200,
+      "content_type": "application/javascript; charset=UTF-8",
+      "size_bytes": 11974315,
+      "size_mb": 11.97,
+      "download_time_s": 18.59,
+      "notes": "Bundle served over tunnel; well above 10 MB requirement."
+    },
+    "check_3_android_manifest": {
+      "status": "PASS",
+      "http_code": 200,
+      "content_type": "application/expo+json",
+      "size_bytes": 3748,
+      "runtimeVersion": "exposdk:52.0.0"
+    },
+    "check_4_qr_png": {
+      "status": "FAIL",
+      "http_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "size_bytes": 68375,
+      "expected_content_type": "image/png",
+      "root_cause": "Frontend SPA returns index.html as a 200 fallback for any unknown path. No backend/static route exposes /app/mobile/.preview/expo-go-qr.png at the public URL /preview/expo-go-qr.png."
+    },
+    "check_5_stores_public_api": {
+      "status": "PASS",
+      "http_code": 200,
+      "content_type": "application/json",
+      "size_bytes": 254,
+      "store_count": 2,
+      "stores": ["Pouzauges (POU)", "Chantonnay (CHA)"]
+    }
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Expose /app/mobile/.preview/expo-go-qr.png at the public URL. Options: (a) copy the PNG into /app/frontend/public/preview/expo-go-qr.png so the frontend serves it as a static asset, OR (b) add a FastAPI route e.g. GET /api/preview/expo-go-qr.png returning FileResponse('/app/mobile/.preview/expo-go-qr.png', media_type='image/png') and update docs/UI pointing at /preview/expo-go-qr.png to use /api/preview/expo-go-qr.png."
+  ],
+  "critical_code_review_comments": [
+    "SPA fallback serving HTML with HTTP 200 for missing static assets hides real 404s and breaks content-type-sensitive consumers (image fetches, native clients). Consider returning index.html only for navigation-mode requests (Accept: text/html) and 404 otherwise."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A", "overall_checks": "4/5 (80%)"},
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Expo tunnel https://nvf9thc-anonymous-19000.exp.direct is healthy; iOS + Android manifests return exposdk:52.0.0 and the Hermes bundle (~12 MB) downloads in ~18s. Backend /api/stores/public returns Pouzauges + Chantonnay. Only remaining issue: QR PNG not served publicly — file exists at /app/mobile/.preview/expo-go-qr.png.",
+  "rca of the issue": "The preview domain routes all non-API paths through the frontend SPA which returns index.html with HTTP 200 for unknown routes. /preview/expo-go-qr.png is not registered as a static asset in frontend/public and no backend route serves it, so the fallback kicks in and masks the 404 as a 200 HTML response."
+}

@@ -1,0 +1,96 @@
+{
+  "expo": {
+    "name": "VapePOS",
+    "slug": "vapepos",
+    "scheme": "vapepos",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b0516"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chavapote.vapepos",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "La caméra est utilisée pour scanner les code-barres produits et les QR codes de fidélité.",
+        "NSFaceIDUsageDescription": "Déverrouillage rapide de la caisse par Face ID.",
+        "UIBackgroundModes": ["remote-notification"],
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight",
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.chavapote.vapepos",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#8B5CF6"
+      },
+      "permissions": [
+        "CAMERA",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "La caméra est utilisée pour scanner les code-barres et les QR codes clients.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Déverrouillage rapide de la caisse par Face ID."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#8B5CF6"
+        }
+      ],
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "DEFAULT"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0b0516",
+          "image": "./assets/splash.png",
+          "imageWidth": 220
+        }
+      ]
+    ],
+    "extra": {
+      "router": { "origin": false },
+      "eas": {
+        "projectId": "REPLACE_ME_AFTER_EAS_INIT"
+      }
+    },
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

@@ -1,153 +1,150 @@
-# Cha Va'Pote — Expérience Client V2
+# VapePOS — Conversion en application native unique (Expo / React Native)
 
-Transformation de l'espace client existant en une vraie application compagnon Cha Va'Pote (fidélité, QR, récompenses, achats, favoris, abonnements, événements, actualités, magasins, statistiques, messagerie, notifications, profil).
-La caisse employé, l'authentification, les comptes existants, les points déjà acquis et toutes les fonctionnalités en place sont strictement conservés.
+Une application mobile native unique Android puis iOS, qui héberge à la fois l'espace client fidélité et la caisse POS, avec détection automatique du profil à la connexion.
+Le projet web actuel (PWA + back-office) reste en ligne et intact : la version native s'ajoute en parallèle sans supprimer l'existant.
 
 ## Pour qui
 
-- **Clients particuliers** sur smartphone — ouvrent l'app Cha Va'Pote régulièrement, pas seulement en magasin, pour suivre leur fidélité, leurs récompenses, leurs achats, et pour communiquer avec l'équipe.
-- **Vendeurs et admins** — rien ne change dans leur parcours caisse. Ils reçoivent seulement, en plus, les conversations clients routées vers le staff de leur magasin et peuvent appliquer les récompenses débloquées quand ils scannent un QR client.
+- **Clients** de la boutique (Cha Va'Pote et autres boutiques du SaaS) : app téléchargée sur Play Store puis App Store, avec QR fidélité, récompenses, messagerie, événements.
+- **Vendeurs et responsables** en magasin (Pouzauges, Chantonnay, extensions futures) : même app installée sur les tablettes du comptoir, qui bascule en mode caisse POS après authentification staff.
+- **Administrateur / gérant** : continue d'utiliser le back-office web (produits, stock, statistiques, comptabilité). Pas de conversion back-office en natif.
 
-## Core features and experience
+## Éligibilité et choix de technologie
 
-**Accueil client immersif**
-Carte de fidélité en gros, barre de progression animée vers la prochaine récompense, niveau actuel + badge, raccourci QR, dernier achat, visites totales, total dépensé. Design violet / fuchsia / rose fidèle à l'identité actuelle, cartes glassmorphism, animations douces, sans surcharge.
+Le projet est **éligible** à une conversion native. Il remplit les trois conditions nécessaires :
+- Toute la logique métier (ventes, fidélité, stock, auth, messagerie) vit déjà côté serveur FastAPI, pas dans le front.
+- L'authentification est basée sur un token JWT retourné par `/api/auth/login`, utilisable à l'identique depuis une app native.
+- Les fichiers React actuels sont des composants fonctionnels standard : la logique métier (appels API, gestion de panier, formatage fidélité) est portable. Les feuilles de style Tailwind et les composants shadcn/ui, eux, ne sont pas réutilisables tels quels et doivent être réécrits avec les primitives React Native.
 
-**Fidélité × niveaux × récompenses**
-Barème fixé à **1 € = 2 points** pour les futures ventes uniquement (les soldes acquis restent intouchés). Progression claire visible côté client. Quatre niveaux : Nouveau, Habitué, Fidèle, VIP — seuils et avantages paramétrables côté admin. Récompenses entièrement configurables depuis l'admin : seuil en points, type (remise %, remise €, produit offert, avantage libre), date d'expiration, actif/inactif.
+Il faut donc trancher entre deux chemins. Voici la comparaison honnête, parce que la question a été posée.
 
-**Déblocage de récompenses animé**
-Quand un seuil est franchi au moment d'une vente, animation « Bravo, nouvelle récompense ! » à la prochaine ouverture de l'app et notification in-app. La récompense passe en statut *disponible* dans l'app.
+### Capacitor (chemin actuel) vs Expo / React Native (chemin proposé)
 
-**Application automatique en caisse**
-Quand le vendeur scanne le QR client en caisse, la caisse détecte automatiquement les récompenses disponibles et propose de les appliquer au ticket (coche à cocher avant paiement : *–10 % · Récompense fidélité*). Le vendeur peut décocher si le client préfère la garder pour plus tard. Une fois appliquée au paiement, la récompense passe en *utilisée*. Aucun code à taper manuellement, aucune saisie côté vendeur en dehors de la case à cocher.
+| Critère | Capacitor (actuel) | Expo / React Native |
+|---|---|---|
+| **Nature** | Enveloppe WebView autour du site React existant. Le JS tourne dans un navigateur embarqué. | Vraie app native. Le JS pilote des composants natifs Android/iOS via le bridge RN. |
+| **Code à écrire** | ~0 — le site web actuel est embarqué tel quel. | Réécriture de **toute la couche UI** (écrans, navigation, styles). La logique API est portable. |
+| **Perf perçue** | Correcte sur tablette récente. Latence visible au scroll long et aux transitions. | Native, fluide même sur appareils d'entrée de gamme. |
+| **Scanner caméra QR/code-barres** | Via plugin Capacitor Camera, acceptable mais lent au focus. | `expo-camera` + `expo-barcode-scanner`, latence quasi nulle, décode EAN-13 au vol. |
+| **Impression Bluetooth thermique (ESC/POS)** | Plugin tiers peu maintenu, support Android partiel, iOS très limité. | Modules natifs React Native éprouvés, support Android complet. |
+| **Biométrie Face ID / empreinte** | Plugin tiers, APIs limitées. | `expo-local-authentication`, API unifiée Android/iOS, stable. |
+| **Notifications push** | Plugin push Capacitor fonctionnel. | `expo-notifications` + Expo Push Service : une seule API, pas besoin de gérer FCM et APNs séparément. |
+| **Stockage local chiffré hors ligne** | `@capacitor/preferences` non chiffré, à combiner avec un plugin tiers. | `expo-secure-store` (Keychain iOS / Keystore Android) + `expo-sqlite` chiffré. Standard. |
+| **Mises à jour sans passer par le store** | Rechargement du bundle web possible mais règles store ambiguës. | **EAS Update** officiel : correctifs JS publiés en quelques minutes, conformes aux règles Apple/Google. |
+| **Builds et publication store** | Nécessite Xcode local (Mac) + Android Studio. | **EAS Build** dans le cloud : builds Android et iOS depuis n'importe quelle machine, pas de Mac requis. |
+| **Mode kiosque tablette (POS)** | WebView plein écran, basique. | Modules RN dédiés (immersive mode Android, guided access iOS). |
+| **Risque de régression du web existant** | Nul, c'est le même code. | Nul : le web n'est pas touché. L'app Expo est un deuxième client qui tape sur le même backend. |
 
-**QR code dédié**
-Page plein écran avec QR grand, luminosité recommandée, instruction *Présente-le en caisse*. Le QR ne contient qu'un token opaque — aucune donnée personnelle n'y figure.
+**Verdict proposé.** Expo apporte des gains concrets sur les cinq fonctionnalités natives demandées (caméra, push, chiffrement, Bluetooth imprimante, biométrie) et simplifie les builds et correctifs. Le coût réel est la réécriture de l'UI mobile. Pour la caisse POS, c'est un vrai bénéfice en vitesse perçue au comptoir. Pour l'app client, c'est quasi obligatoire si l'objectif est une présence sérieuse sur les stores.
 
-**Mes achats, détail et racheter**
-Liste des achats passés avec date, magasin, montant, nombre d'articles, points gagnés. Ouverture d'un ticket pour voir les lignes produit. Bouton *Ajouter aux favoris* sur chaque produit du ticket. Bouton *Racheter* qui pré-remplit un panier d'intention affichable au vendeur à la prochaine visite — simple raccourci, sans paiement en ligne.
+**Recommandation.** Basculer sur Expo pour les deux rôles, dans une même app. Garder Capacitor en plan B jusqu'à la publication du premier build Android, puis le retirer. Le web PWA reste la cible officielle pour le back-office et comme fallback de dépannage.
 
-**Mes favoris & mes produits habituels**
-Rubrique Favoris où le client gère sa liste. Section *Tes produits habituels* calculée uniquement à partir des produits qu'il a réellement rachetés plusieurs fois — aucune donnée inventée.
+## Expérience et fonctions principales
 
-**Mon activité**
-Tableau synthèse ludique mais non culpabilisant : visites, total dépensé, points cumulés, récompenses obtenues, produits différents, magasin le plus fréquenté, première visite, dernière visite.
+L'app couvre **deux expériences dans un même binaire**, choisies automatiquement selon le compte connecté.
 
-**Mon année Cha Va'Pote**
-Récapitulatif annuel façon rétrospective, généré à partir des vraies données. Accessible toute l'année, mis en avant en décembre.
+### Expérience client (visible par défaut au premier lancement)
+- Écran d'accueil fidélité avec niveau (Nouveau / Habitué / Fidèle / VIP) et progression.
+- Mon QR en plein écran, lisible depuis le lecteur de la caisse même sous un éclairage médiocre.
+- Récompenses disponibles / utilisées / expirées avec libellé `-X %`, `-X €`, Offert.
+- Messagerie avec le magasin préféré, notifications push pour chaque réponse de l'équipe.
+- Boutique : choix du magasin préféré, horaires, événements, actualités.
+- Profil : coordonnées, préférences, suppression de compte, déconnexion.
+- Favoris et historique d'achats.
 
-**Mes magasins**
-Fiches Pouzauges et Chantonnay avec adresse, horaires, infos pratiques, événements liés. Le client choisit son magasin préféré (modifiable à tout moment). Les fiches sont administrables côté staff.
+### Expérience staff / caisse (après login staff)
+- Écran de caisse en mode paysage, verrouillé en orientation horizontale sur tablette.
+- Catalogue par catégories drill-down, panier permanent à droite, bouton Paiement très visible.
+- Scanner code-barres caméra, scanner QR client, suspension et reprise de panier.
+- Paiement espèces / carte / mixte, calcul automatique du rendu.
+- Ouverture et clôture de caisse, rapport Z simplifié.
+- Impression du ticket via imprimante Bluetooth thermique (ESC/POS).
+- Login staff par email + PIN, avec option Face ID / empreinte sur les sessions suivantes.
+- Mode hors ligne : panier et dernière vente conservés en stockage chiffré, synchro à la reconnexion.
 
-**Événements**
-Rubrique dédiée alimentée par l'admin (Halloween, Octobre Rose, anniversaires de magasin, animations). Chaque événement a image, titre, description, date, lieu, magasin concerné, bouton d'action éventuel.
+### Fonctions natives communes activées dès la MVP
+- Scanner caméra QR + code-barres EAN-13 / EAN-8 / Code128.
+- Notifications push via Expo Push.
+- Stockage local chiffré (clés, tokens, panier en cours, cache produits).
+- Biométrie Face ID / empreinte digitale pour le profil staff uniquement.
+- Impression Bluetooth ESC/POS pour le profil staff uniquement.
 
-**Actualités**
-Flux de cartes publiées par l'admin : nouveaux produits, nouveautés fidélité, annonces. Création/modification depuis l'admin.
+## Parcours utilisateur
 
-**Mes abonnements**
-Vue dédiée affichant l'abonnement actuel du client (formule, statut, prochaine échéance, contenu) et l'historique. En lecture seule tant qu'il n'y a pas de paiement récurrent — formules administrables.
+**Premier lancement.**
+1. Écran d'accueil app → bouton Se connecter ou Créer un compte.
+2. Création rapide client (email, mot de passe, prénom) ou saisie identifiants staff.
+3. L'API `/auth/login` renvoie le rôle. L'app route automatiquement : `type: customer` → onglets client, `type: staff` → écran de caisse.
+4. Permission notifications demandée après connexion.
+5. Permission caméra demandée au premier scan.
 
-**Parler à l'équipe (messagerie)**
-Fil de discussion entre le client et le staff. **Routage automatique vers le staff du magasin préféré du client** (Pouzauges ou Chantonnay). Un vendeur ou un admin du magasin concerné voit la conversation dans l'interface staff, répond, suit le statut lu/non-lu. Compteur de messages non lus côté client et côté staff. Horodatage, historique conservé, possibilité de fermer une conversation et d'en ouvrir une nouvelle. Les réponses sont explicitement humaines — aucune IA présentée comme un humain.
+**Vie quotidienne client.**
+1. Ouvre l'app, Face ID / empreinte débloque la session (optionnel).
+2. Arrive sur l'onglet Accueil fidélité.
+3. Appuie sur l'onglet QR central pour présenter son code au comptoir.
+4. Reçoit une notification push « +42 points » juste après le paiement.
 
-**Centre de notifications enrichi**
-La cloche existante devient un vrai centre : récompense débloquée, points gagnés, nouveau message staff, info abonnement, nouvel événement, nouvelle actualité, info magasin. Marquage lu / tout marquer lu / supprimer. Architecture prête pour push mobile ultérieur (le système reste fonctionnel sans push).
+**Vie quotidienne vendeur.**
+1. Ouvre l'app sur la tablette comptoir, s'authentifie par PIN ou biométrie.
+2. Atterrit directement sur l'écran caisse paysage.
+3. Scanne les produits, scanne le QR client, encaisse, imprime le ticket Bluetooth.
+4. Fin de journée : clôture de caisse, rapport affiché, déconnexion.
 
-**Mon profil & paramètres**
-Prénom, nom, email, téléphone, magasin préféré, niveau, date d'inscription. Modification des infos autorisées. Paramètres : notifications (toggles par type), confidentialité (lien politique + suppression de compte conservée), déconnexion.
+## Rendu visuel
 
-**Navigation client**
-Barre bas 5 onglets : **Accueil · Fidélité · QR · Boutique · Profil**. QR en bouton central mis en avant pour un accès instantané en caisse. Favoris, achats, événements, actualités, messagerie accessibles depuis Accueil et Profil.
+- Charte Cha Va'Pote conservée : violet, fuchsia, accents clairs, glassmorphisme.
+- Chaque magasin SaaS pourra à terme surcharger logo et couleurs.
+- Mode clair et mode sombre, basculé selon réglage système par défaut.
+- Typographie et icônes natives Android (Material) et iOS (SF Symbols) via Expo pour que l'app se fonde dans chaque plateforme.
+- Composants shadcn/ui du web **non repris** : remplacés par des équivalents React Native stylés dans la même palette.
+- Mode caisse verrouillé en paysage, mode client libre en portrait.
 
-**Côté caisse / admin — ce qui est ajouté sans toucher l'existant**
-- Un onglet *Messagerie* dans l'admin filtré par magasin où le vendeur ou l'admin répond aux clients de son magasin.
-- Un onglet *Fidélité* dans l'admin pour configurer règles de points, niveaux, récompenses.
-- Un onglet *Contenu* dans l'admin pour gérer événements, actualités, fiches magasins, formules d'abonnement.
-- En caisse, un bandeau discret apparaît quand un client scanné a des récompenses disponibles, avec case à cocher dans le panier.
+## Phases d'implémentation
 
-## User flow
+### Phase 1 — MVP natif Android (construite maintenant)
 
-**Client — ouverture quotidienne**
-Ouvre l'app → arrive sur l'accueil déjà connecté → voit son niveau et sa progression → scrolle sur dernier achat, raccourcis favoris / achats / messagerie → consulte éventuellement actualités ou événements → ferme.
+Objectif : avoir un APK installable et un build Play Store interne qui couvre l'expérience client complète et la caisse POS en version essentielle, en tapant sur le backend FastAPI existant sans aucune modification serveur bloquante.
 
-**Client — passage en caisse**
-Appuie sur QR dans la barre bas → QR plein écran → vendeur scanne → à la prochaine ouverture, voit ses nouveaux points, voit si une récompense a été débloquée (animation), voit l'achat détaillé dans Mes achats.
+Contenu livré :
+- Projet Expo créé sous `/app/mobile/` (nouveau dossier, le web n'est pas touché).
+- Login unifié auto-détection staff / client sur le même endpoint que le web.
+- **Côté client** : accueil fidélité, QR plein écran, récompenses, messagerie, boutique, profil, favoris, historique.
+- **Côté staff** : écran caisse paysage, catalogue drill-down, panier, scan code-barres caméra, scan QR client, paiement espèces + carte + mixte, ticket d'écran (impression Bluetooth branchée mais marquée *bêta*).
+- Notifications push Expo configurées, token enregistré côté backend.
+- Biométrie staff (opt-in).
+- Stockage chiffré pour token, panier en cours, dernière session caisse.
+- Build Android produit via EAS Build, livré en APK + bundle AAB prêt pour Play Store interne.
+- Capacitor laissé en place sans modification pendant toute la Phase 1 ; retrait proposé à la fin, après validation du build Expo.
 
-**Client — récompense disponible**
-Reçoit notif *Nouvelle récompense disponible* → ouvre l'app → voit la récompense dans Fidélité → va en caisse → présente son QR → le vendeur voit la récompense proposée, la coche, le ticket est réduit automatiquement.
+### Phase 2 — iOS App Store + impression Bluetooth validée + hors ligne robuste
 
-**Client — conversation**
-Ouvre *Parler à l'équipe* → tape sa question → envoyée au staff du magasin préféré → reçoit une notification quand le staff répond → relit le fil, répond.
+- Build iOS via EAS, soumission App Store Connect.
+- Impression ESC/POS validée sur deux modèles d'imprimante physiques.
+- Mode hors ligne complet : file d'attente des ventes, dédoublonnage à la synchro, panier et clôture caisse résilients à une coupure réseau.
+- EAS Update branché : correctifs sans resoumission au store.
+- Retrait de Capacitor du dépôt.
 
-**Vendeur — journée normale**
-Connexion → magasin → carte → caisse comme aujourd'hui, inchangée. En plus, s'il y a un message client en attente pour son magasin, une pastille apparaît sur l'icône messagerie. Pendant un encaissement avec QR scanné, si une récompense est disponible une ligne apparaît dans le panier avec la case à cocher.
+### Phase 3 — Finitions SaaS, kiosque et conformité
 
-**Admin — configurer la fidélité**
-Admin → Fidélité → édite les paliers de récompenses (points, type, montant, expiration) → active/désactive une récompense → sauvegarde. Les changements prennent effet immédiatement côté client.
+- Mode kiosque tablette (immersive Android, guided access iOS) pour empêcher le vendeur de sortir de l'app.
+- Thème par entreprise (logo, couleurs) chargé dynamiquement selon le compte.
+- Signature électronique du ticket, archivage, intégrité (préparation NF525 — jamais annoncée comme certifiée tant qu'un audit réel n'est pas fait).
+- Analytics d'usage, crash reporting, A/B testing EAS.
+- Publication publique Play Store + App Store (grand public) après revue d'un échantillon de testeurs internes.
 
-## UI/UX feel
+## Hypothèses retenues sans redemander
 
-- Design actuel conservé : violet / fuchsia / rose, mode clair-sombre selon préférence système, cartes glassmorphism, dégradés subtils, grain discret, animations douces (240–320 ms).
-- Mobile portrait prioritaire pour toute l'expérience client. Caisse paysage inchangée. Admin desktop + tablette.
-- Micro-interactions ciblées : barre de progression qui remplit après un achat, animation célébration au déblocage de récompense, pulsation subtile du QR, badge niveau coloré selon le palier (Nouveau argent, Habitué violet clair, Fidèle fuchsia, VIP dégradé or-rose).
-- Zéro animation gratuite. Rapidité, lisibilité et fluidité priment.
-- Icône QR en bouton central de la barre bas, légèrement surélevé — c'est le geste principal du client.
-- Visuels événements et actualités en cartes 16:9 avec image, titre fort, 1-2 lignes de teaser.
-
-## Implementation phases
-
-### Phase 1 — MVP V2 construit maintenant
-
-- Nouveau tableau de bord client (hero fidélité animé, niveau, progression, dernier achat, raccourcis)
-- Système de niveaux (4 paliers configurables, badges, avantages affichés)
-- Récompenses configurables depuis l'admin + animation de déblocage + statuts disponible/utilisée/expirée
-- Taux fidélité 1 € = 2 points pour les ventes à venir, soldes passés conservés
-- Application automatique des récompenses en caisse via case à cocher au panier
-- Favoris + section *Produits habituels* dérivée des rachats réels
-- Mon activité (statistiques personnelles réelles)
-- Mon année Cha Va'Pote (récapitulatif à partir des données existantes)
-- Fiches Pouzauges / Chantonnay + choix du magasin préféré
-- Événements et actualités, création depuis l'admin
-- Abonnements en lecture seule, formules éditables côté admin
-- Messagerie *Parler à l'équipe* avec routage par magasin préféré, statuts lu/non-lu, compteur non lu
-- Centre de notifications enrichi (types multiples, marquage, suppression, préférences dans profil)
-- Profil client complet + paramètres + lien privacy et suppression compte conservés
-- Navigation bas 5 onglets avec QR central
-- Côté caisse : bandeau récompense + case cochable automatique au panier quand QR scanné
-- Côté admin : onglets Fidélité, Contenu (événements / actualités / magasins / abonnements), Messagerie
-- Architecture pensée pour une future conversion mobile native (séparation logique métier / données / UI, aucune dépendance navigateur spécifique dans les composants client)
-
-### Phase 2 — Après validation du MVP
-
-- Notifications push natives via APNs / FCM — l'app continue de fonctionner si l'utilisateur refuse
-- Récompenses sous forme de coupons scannables en caisse (en complément du mode case à cocher)
-- Récap *Mon année* exportable en image partageable
-- Programmation à l'avance d'événements et actualités (date de publication future)
-- Pastilles de badges supplémentaires (anniversaire client, cap des X visites, etc.)
-- Attribution d'une conversation à un employé précis dans la messagerie
-- Préférences de notification plus fines (par magasin, par type, horaires de silence)
-
-### Phase 3 — Plus tard
-
-- Paiement récurrent intégré pour les abonnements (Basique / Plus / Premium / Gold)
-- Bouton *Racheter* qui déclenche réellement une commande web depuis l'app (dépendant de l'intégration Lovable)
-- Analytics client agrégés anonymisés pour l'admin
-- Système de parrainage client → client avec bonus de points
-- Conformité caisse française à valider (archivage, traçabilité)
-
-## Assumptions
-
-- **Taux 1 € = 2 points** s'applique uniquement aux nouvelles ventes. Aucun recalcul rétroactif, aucun ajustement sur les soldes actuels.
-- **Récompenses** s'appliquent en caisse automatiquement quand le vendeur scanne le QR : une ligne récompense apparaît dans le panier avec case à cocher, le vendeur peut décocher. Pas de code à montrer, pas de saisie manuelle.
-- **Messagerie** route par **magasin préféré** du client : si le client a choisi Pouzauges, le staff Pouzauges voit et répond. Si le client n'a jamais choisi de magasin préféré, la conversation est visible par les admins des deux magasins par défaut.
-- Les **employés et admins** du magasin concerné peuvent tous voir et répondre aux conversations ; aucun système d'attribution exclusive à un employé en phase 1.
-- Les **types de récompense** supportés en phase 1 sont : remise en %, remise en €, produit offert (sélectionné dans le catalogue), avantage libre texte. Expiration en jours configurable, défaut 30 jours après déblocage.
-- Les **niveaux de fidélité** par défaut sont Nouveau (0 pt), Habitué (200 pt), Fidèle (500 pt), VIP (1500 pt) — modifiables depuis l'admin. Les points gagnés comptent pour la vie du compte, aucun reset annuel.
-- Le QR client **reste le même** que celui qui existe aujourd'hui, aucune invalidation en masse. Il reste révocable individuellement par le client depuis sa page QR.
-- Le bouton **Racheter** en phase 1 ouvre juste la liste des produits du ticket dans Favoris pour que le client les montre à sa prochaine visite — pas de commande en ligne, pas de paiement.
-- Les **statistiques** sont calculées côté serveur à la demande, basées uniquement sur les ventes et notifications réelles du client. Aucune donnée fictive.
-- La **messagerie** fonctionne en polling toutes les 30 s côté client et toutes les 20 s côté staff en phase 1. Pas de WebSocket, pas de push, pas d'IA. Réponses explicitement humaines.
-- L'**app mobile native Capacitor** déjà intégrée reste la cible de distribution : toutes les nouvelles pages client sont pensées portrait mobile dès le premier jet et marchent dans le wrapper natif sans adaptation.
-- Les **anciens parcours** caisse, admin, authentification, points existants, QR, scan, impression, exports, imports CSV, catalogue des 1218 produits, multi-magasins Pouzauges / Chantonnay, suppression de compte, politique de confidentialité, mode kiosque, mode clair-sombre, notifications in-app actuelles — **tout reste strictement intact**.
+- Le backend FastAPI actuel reste la source unique de vérité. Aucune duplication de base. L'app native tape exactement les mêmes endpoints `/api/*` que le web.
+- Les 2 411 produits et les comptes existants sont conservés tels quels, aucun reset de base.
+- Une seule app native, un seul store listing, avec routage interne staff/client. Pas de double publication.
+- Phase 1 cible **Android uniquement**. iOS déplacé en Phase 2 comme demandé.
+- Impression Bluetooth ESC/POS livrée en MVP mais marquée **bêta** tant qu'elle n'a pas été testée sur votre imprimante réelle au comptoir.
+- Biométrie activée **uniquement pour le profil staff** ; les clients gardent email + mot de passe standard.
+- Notifications push via **Expo Push Service** (couche gratuite au-dessus de FCM / APNs), pas d'intégration FCM nue en MVP.
+- Nom de l'app sur les stores : **« VapePOS »** côté staff, mais si vous préférez séparer la marque client (par exemple « Cha Va'Pote »), ce sera un seul binaire avec un nom de store personnalisable par entreprise en Phase 3.
+- Compte développeur Google Play (25 $ une fois) et compte Apple Developer (99 $/an) **à votre charge et à votre nom**. Nécessaires pour publier, pas pour builder en interne.
+- Capacitor conservé intact pendant toute la Phase 1 pour ne rien casser. Retrait proposé seulement en fin de Phase 2, après validation du build Expo en production.
+- Le back-office administrateur (gestion produits, stock, stats, compta) **reste exclusivement web**. Non converti en natif.
+- UI mobile entièrement réécrite en composants React Native + bibliothèque de style compatible (NativeWind) ; les composants shadcn/ui du web ne sont pas réutilisés tels quels.
+- Déploiement des builds via **EAS Build** cloud, pas besoin d'un Mac pour iOS.
+- Correctifs JS post-publication via **EAS Update** à partir de la Phase 2.

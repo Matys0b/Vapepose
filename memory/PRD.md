@@ -1,94 +1,72 @@
-# VapePOS — PRD & Living Backlog
+# VapePOS — PRD (vivant)
 
-## Original Problem Statement
-VapePOS — Caisse professionnelle pour boutiques de vape. Priorité absolue : la caisse et l'encaissement client. Mode paysage tablette. Parcours : SCAN/CHERCHER → PANIER → CLIENT FACULTATIF → PAIEMENT → TICKET → FIN. Le reste (stock, fournisseurs, compta, stats, fidélité) est secondaire, accessible depuis un menu. Multi-magasins, multi-caisses, rôles admin/responsable/vendeur.
+> Document de pilotage, mis à jour à chaque itération. Les détails techniques précis vivent dans le code et les READMEs locaux.
 
-## User Choices (Feb 2026 — session unifiée)
-- MVP unifié Cha Va'Pote : une seule app pour clients + personnel avec routage par rôle
-- Inscription publique CLIENT avec date de naissance et 18+ bloquant
-- Rôles : CLIENT (public), SELLER, ADMIN. Pas de MANAGER dans ce MVP
-- QR opaque, révocable, sans donnée personnelle
-- Notifications in-app (cloche), pas d'email pour l'instant
-- Mode bloqué caisse avec sortie via PIN admin
-- Publication mobile Android d'abord, iOS ensuite
-- Abonnements en lecture seule (Basique/Plus/Premium/Gold)
+## Problème (verbatim)
 
-## Comptes actifs
-- **Mathis** – PIN 1111 (violet) – admin
-- **Emma** – PIN 2222 (rose) – admin
-- **Jessica** – PIN 3333 (cyan) – admin
-- Login staff : email + mot de passe `vapepos` ou PIN + choix magasin
+Caisse POS professionnelle pour boutiques de vape, principalement utilisée sur tablette horizontale. L'écran d'accueil d'un vendeur doit être la caisse elle-même, pas un back-office. Autour de la caisse : fidélité client (QR), gestion stock, fournisseurs, comptabilité, multi-magasins, multi-caisses, app mobile client dédiée. Priorité absolue : vitesse d'encaissement.
 
-## Isolation multi-magasin
-- **Pouzauges (POU)** et **Chantonnay (CHA)** : catalogues séparés, ventes séparées.
-- Endpoints scopés par `user.store_id` : `/products`, `/products/lookup`, `/sales`, `/dashboard/stats`.
-- Comptabilité multi-store filtrable.
+## Personas
 
-## Architecture
-- Backend : FastAPI + Motor (MongoDB `vapepos_database`) — tout sous `/api`
-- Frontend : React 19 + Tailwind + shadcn/ui, routing React Router
-- Auth staff : JWT HS256 cookies + Bearer, /auth/login + /auth/pin-login + /auth/universal-login
-- Auth client : JWT séparé `customer_token`, /customer/register + /customer/login
-- Login unifié `/auth/universal-login` (essaie staff puis customer)
-- PWA installable, Service Worker v6, mode kiosque
+- **Vendeur comptoir** — Caisse horizontale, scan, encaissement rapide, impression ticket.
+- **Responsable magasin** — Ouverture/clôture caisse, retours, stats du jour.
+- **Administrateur / gérant** — Back-office web (produits, stock, stats, compta).
+- **Client fidélité** — App mobile : QR, points, récompenses, messagerie, événements.
 
-## Collections MongoDB
-users · stores · categories · products · customers · sales · cash_sessions · stock_movements · suppliers · suspended_carts · loyalty_transactions · **notifications** · audit_logs · app_settings · counters
+## Ce qui est implémenté (chronologique)
 
-## Implémenté — Phase 1 MVP unifié (Sept 2026)
-- **Login unifié** `/login` : toggle Client ↔ Personnel, sous-onglets Connexion/Inscription côté client, parcours PIN + magasin côté staff
-- **Inscription CLIENT publique** avec date de naissance + 18+ **bloquant serveur** + CGU obligatoires
-- **Portail client mobile** avec bottom-nav 4 tabs :
-  - Accueil : fidélité, stats, dernier achat, aperçu abonnements
-  - Mon QR : QR plein écran, régénération, astuce luminosité
-  - Achats : historique 20 dernières ventes avec détail article + mouvements de points
-  - Profil : édition prénom/nom/téléphone, changement mot de passe, lien confidentialité, suppression compte
-- **Suppression de compte définitive** : anonymise les ventes, purge loyalty/notifications, supprime le client
-- **Notifications in-app** : cloche dans header POS/Admin/Client, badge non-lu, marquage lu/tout marquer, auto-notification sur vente avec client + welcome à l'inscription
-- **Mode bloqué caisse** (kiosque renforcé) : bouton "Mode bloqué" dans header POS, masque menu Gestion + Logout, ribbon rouge, sortie par PIN admin (endpoint `/auth/verify-pin`)
-- **Page confidentialité** `/privacy` : politique complète 10 sections (responsable, données, 18+, conservation, sécurité, droits, cookies, contact)
-- **PWA v6** : Service Worker bumpé pour forcer refresh chez utilisateurs existants
+### Fin 2025 — Web (/app/frontend) — PWA + Capacitor
+- Caisse POS horizontale, drill-down catégories, panier, scan caméra via Capacitor
+- Clients : auto-détection staff/client sur `/api/auth/universal-login`
+- Multi-magasins Pouzauges / Chantonnay — stock séparé, catalogue partagé
+- Import de 2 411 produits réels depuis fichiers Excel du client
+- Portail client V2 : loyalty tiers, QR, récompenses, messagerie, événements, actualités
+- Backend FastAPI complet (`/app/backend/server.py`) — unchanged
+- Base MongoDB — unchanged
 
-## Implémenté — Phases antérieures conservées
-- Catalogue produits hiérarchique avec drag & drop, import/export CSV multi-magasins, images auto EAN
-- PWA installable + mode kiosque (wake lock, fullscreen, trap back)
-- Auth email + PIN quick-switch, /me via cookie ou Bearer
-- Écran POS paysage 65/35 avec scanner HID/USB/caméra, panier, actions
-- Paiement Espèces + CB + Autre + Mixte, calcul "à rendre"
-- Ticket HTML + impression navigateur
-- Sessions caisse ouverture/fermeture avec rapport Z
-- Suspension/reprise paniers
-- Clients : recherche, création, QR token, historique, fidélité auto
-- Stock : ajustement, réception bulk, mouvements, motifs
-- Fournisseurs, comptabilité complète, dépenses, statistiques
-- Multi-magasins Pouzauges/Chantonnay avec stocks séparés
-
-## Nouveaux endpoints (session unifiée)
-- `POST /api/auth/universal-login` — essaie staff puis customer
-- `POST /api/auth/verify-pin` — vérifie PIN sans switch (kiosque unlock)
-- `PUT /api/customer/profile` — édition + changement mot de passe
-- `DELETE /api/customer/account` — suppression définitive
-- `GET /api/notifications` — auto-détecte staff vs client
-- `POST /api/notifications/mark-read` — mark all ou par ids
-- Auto-notification sur vente client + welcome inscription
+### Fév 2026 — Mobile natif Expo (/app/mobile) — **nouveau, livré ce jour**
+- Projet Expo SDK 52 + expo-router v4 + NativeWind v4
+- Login unifié auto-détection staff / client
+- **Client** (bottom tabs 5 onglets avec QR surélevé) : accueil fidélité, loyalty tiers avec récompenses, QR plein écran, boutique (choix magasin préféré + events + actus), profil (biométrie + suppression compte), messagerie polling 30 s, historique achats
+- **Staff** (verrouillé landscape) : choix magasin, ouverture/clôture caisse, écran POS avec drill-down catégories + recherche + favoris + grille produits, panier droite, scan code-barres caméra, scan QR client avec affichage récompenses disponibles, paiement espèces/carte/mixte avec clavier numérique + calcul rendu, écran ticket avec impression Bluetooth marquée BÊTA
+- Notifications push Expo (token enregistré au login)
+- Biométrie staff (Face ID / empreinte, opt-in)
+- Stockage chiffré (`expo-secure-store`) pour token + panier en cours
+- EAS Build cloud pour Android APK + bundle Google Play
+- Bundle Metro validé : 1 765 modules compilent sans erreur (seule la compilation Hermes locale échoue à cause du binaire sandbox, OK en prod EAS)
+- Web + Capacitor restent **intacts**
 
 ## Backlog priorisé
-### Phase 2 (à valider après MVP)
-- Rôle MANAGER intermédiaire avec matrice permissions
-- Notifications email (Resend)
-- Écran "Commandes web" côté caisse (statuts Nouvelle/En prépa/Prête/Terminée/Annulée)
-- Récompenses fidélité activables (coupons, paliers, échange)
-- Publication Play Store puis App Store
 
-### Phase 3 (plus tard)
-- Intégration commandes web depuis site Lovable
-- Paiement récurrent abonnements Basique/Plus/Premium/Gold
-- Notifications push mobiles natives
-- Conformité caisse française (intégrité, archivage, traçabilité, NF525)
-- Intégration TPE réel (SumUp/Ingenico)
-- Impression thermique ESC/POS
+### P0 — bloquants validation Phase 1
+- [ ] Faire tourner `eas init` + `eas build --profile preview --platform android` depuis le compte Expo du client → APK sur tablette comptoir
+- [ ] Mettre un vrai `extra.eas.projectId` dans `app.json` après `eas init`
+- [ ] Tester scan EAN-13 réel sur tablette avec un produit du catalogue
+- [ ] Valider login staff + fin de vente end-to-end sur device physique
 
-## Notes techniques
-- CORS_ORIGINS explicite pour cookies SameSite=None
-- Backend démarré via supervisor, hot-reload activé
-- Service Worker bumpé à v6 — utilisateurs existants recevront la nouvelle version au prochain refresh
+### P1 — Phase 2
+- [ ] Build iOS via EAS + soumission App Store Connect
+- [ ] Impression ESC/POS validée sur 2 modèles d'imprimante thermique physiques
+- [ ] Mode hors ligne robuste (file d'attente des ventes + dédoublonnage à la synchro)
+- [ ] EAS Update branché pour hotfix JS sans resoumission store
+- [ ] Retrait de Capacitor du dépôt web
+
+### P1 — Admin back-office web (hors scope mobile)
+- [ ] Édition et création de produits + upload photos (demandé msg #101 non livré)
+- [ ] Interface admin Fidélité (créer paliers de récompenses depuis UI)
+- [ ] Interface admin Contenu (publier événements/actualités via UI)
+- [ ] Interface admin Messagerie (répondre depuis le web)
+
+### P2 — Phase 3
+- [ ] Mode kiosque tablette (immersive Android, guided access iOS)
+- [ ] Thème SaaS par entreprise (logo + couleurs chargés dynamiquement)
+- [ ] Signature électronique du ticket + archivage (préparation NF525)
+- [ ] Analytics d'usage + crash reporting
+- [ ] Publication publique Play Store + App Store
+
+## Points d'attention
+
+- Le binaire mobile est unique : un seul store listing, un seul code, routage interne staff/client selon profil.
+- Le back-office administrateur **reste exclusivement web**, pas de conversion native prévue.
+- Impression Bluetooth est câblée côté UI mais marquée BÊTA — ne pas annoncer comme fonctionnelle tant qu'on n'a pas validé sur imprimante physique.
+- Aucune revendication NF525 / certification tant qu'un audit officiel n'a pas été fait.

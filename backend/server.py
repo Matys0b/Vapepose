@@ -2050,7 +2050,7 @@ async def _resolve_or_create_conversation(customer_id: str) -> dict:
     cust = await db.customers.find_one({"id": customer_id})
     if not cust:
         raise HTTPException(404, "Client introuvable")
-    conv = await db.conversations.find_one({"customer_id": customer_id, "status": "open"})
+    conv = await db.conversations.find_one({"customer_id": customer_id, "status": "open"}, {"_id": 0})
     if conv:
         return conv
     store_id = cust.get("preferred_store_id") or None
